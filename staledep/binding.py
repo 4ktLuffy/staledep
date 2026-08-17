@@ -155,6 +155,38 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
     },
 }
 
+# --- claude code (real sessions, not a benchmark) --------------------------
+# Edit carries old_string, which must match EXACTLY or the call fails. That is a
+# staleness guard: if the file moved, the edit does not land wrong, it refuses.
+# Write has no such guard -- it overwrites whatever is at the path now. Same
+# resource, same window, opposite safety, which is precisely why binding has to
+# be per edge rather than per tool.
+EDGE_BINDING.update({
+    ("claude_code", "Edit"): {
+        "workspace.files": Bind.SNAPSHOT,   # exact-match old_string fails safe
+        "web": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
+    },
+    ("claude_code", "MultiEdit"): {
+        "workspace.files": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
+    },
+    ("claude_code", "Write"): {
+        # path resolved at execution; no content precondition. Overwrites
+        # whatever is there now, including changes made since the Read.
+        "workspace.files": Bind.DEREFERENCE,
+        "web": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
+    },
+    ("claude_code", "NotebookEdit"): {
+        "workspace.files": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
+    },
+    ("claude_code", "Bash"): {
+        # arbitrary effect; cannot be classified from a signature
+        "workspace.files": Bind.UNKNOWN, "shell": Bind.UNKNOWN,
+        "web": Bind.UNKNOWN, "*": Bind.UNKNOWN,
+    },
+    ("claude_code", "TodoWrite"): {"todo": Bind.DEREFERENCE, "*": Bind.UNKNOWN},
+})
+
+
 #: Only these can be moved by mutating state.
 EXPLOITABLE = frozenset({Bind.DEREFERENCE, Bind.CONTROL})
 

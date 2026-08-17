@@ -54,6 +54,7 @@ def find_windows(
     suite: str,
     *,
     high_risk_only: bool = False,
+    step_effects: list | None = None,
 ) -> list[Window]:
     """Find candidate windows in an ordered sequence of tool names.
 
@@ -69,7 +70,15 @@ def find_windows(
     last_read: dict[str, tuple[int, str]] = {}
 
     for idx, name in enumerate(calls):
-        eff: Effect | None = table.get(name)
+        # Per-call effect wins over name-based typing. Bash is the reason: its
+        # effect lives in the command string, so `Bash(ls)` is a READ and must
+        # not act as a sink, while `Bash(rm)` writes. Typing it by name made
+        # 78% of live windows unclassifiable.
+        eff: Effect | None = None
+        if step_effects is not None and idx < len(step_effects) and step_effects[idx]:
+            eff = step_effects[idx]
+        else:
+            eff = table.get(name)
         if eff is None:
             continue  # undeclared tool: cannot reason about it, so do not guess
 
@@ -103,7 +112,8 @@ def find_windows(
     return windows
 
 
-def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]:
+def windows_from_provenance(calls: list[str], links, suite: str,
+                            step_effects: list | None = None) -> list[Window]:
     """Convert data-flow links into candidate windows.
 
     A link says a later call's argument came from an earlier call's output. If
@@ -118,7 +128,11 @@ def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]
     # read->send edge, inflating window counts threefold.
     seen: set[tuple[int, int]] = set()
     for link in links:
-        eff = table.get(link.sink_tool)
+        eff = None
+        if step_effects is not None and link.sink_idx < len(step_effects) and step_effects[link.sink_idx]:
+            eff = step_effects[link.sink_idx]
+        else:
+            eff = table.get(link.sink_tool)
         if eff is None or eff.risk is Risk.READ:
             continue  # a read acting on stale data changes nothing
         key = (link.source_idx, link.sink_idx)
@@ -135,17 +149,19 @@ def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]
 
 
 def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate",
-                  committed: list[bool] | None = None) -> dict:
+                  committed: list[bool] | None = None,
+                  step_effects: list | None = None,
+                  step_binds: list | None = None) -> dict:
     """Label a single task as carrying a stale-dependency candidate or not.
 
     `links` are optional provenance edges from staledep.provenance.trace; without
     them only state-typed windows are found, which under-counts.
     """
-    windows = find_windows(calls, suite)
+    windows = find_windows(calls, suite, step_effects=step_effects)
     n_state = len(windows)
     if links:
         seen = {(w.check_idx, w.use_idx, w.resource) for w in windows}
-        for w in windows_from_provenance(calls, links, suite):
+        for w in windows_from_provenance(calls, links, suite, step_effects):
             if (w.check_idx, w.use_idx, w.resource) not in seen:
                 windows.append(w)
                 seen.add((w.check_idx, w.use_idx, w.resource))
@@ -162,12 +178,14 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
 
     # Edge-level binding. A SNAPSHOT edge copies the checked value into the
     # argument and cannot be moved by mutating state, however wide the window.
-    temporal = [w for w in windows
-                if bind_of(suite, w.use_tool, w.resource) in (Bind.DEREFERENCE, Bind.CONTROL)]
-    snapshot_only = [w for w in windows
-                     if bind_of(suite, w.use_tool, w.resource) is Bind.SNAPSHOT]
-    unknown_bind = [w for w in windows
-                    if bind_of(suite, w.use_tool, w.resource) is Bind.UNKNOWN]
+    def _bind(w):
+        if step_binds is not None and w.use_idx < len(step_binds) and step_binds[w.use_idx]:
+            return step_binds[w.use_idx]
+        return bind_of(suite, w.use_tool, w.resource)
+
+    temporal = [w for w in windows if _bind(w) in (Bind.DEREFERENCE, Bind.CONTROL)]
+    snapshot_only = [w for w in windows if _bind(w) is Bind.SNAPSHOT]
+    unknown_bind = [w for w in windows if _bind(w) is Bind.UNKNOWN]
 
     high = [w for w in windows if w.use_risk is Risk.HIGH]
     # Conditioning on mutability is what makes this a threat statement rather

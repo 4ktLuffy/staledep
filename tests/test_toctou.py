@@ -539,3 +539,43 @@ def test_snapshot_flows_are_not_counted_as_temporal():
     assert snapshot == {"literal-copy", "synthesised-text", "phantom"}
     # only shared-resource is temporal AND caught by the intended mechanism
     assert len(temporal - {"aliasing", "control-dependence"}) == 1
+
+
+def test_no_regex_pattern_contains_control_characters():
+    """VERIFIED BUG: a pattern written through a non-raw Python string turned
+    every \\b into a literal backspace (\\x08). It compiled cleanly and silently
+    never matched, so `curl -o file` was classified read-only instead of as a
+    file write. Regexes that fail closed are invisible without this check."""
+    import importlib
+    import pkgutil
+    import re
+
+    import staledep
+    for m in pkgutil.iter_modules(staledep.__path__):
+        mod = importlib.import_module(f"staledep.{m.name}")
+        for name, val in vars(mod).items():
+            if isinstance(val, re.Pattern):
+                ctrl = [c for c in val.pattern if ord(c) < 32 and c not in "\n\t"]
+                assert not ctrl, f"{m.name}.{name} pattern has control chars: {ctrl!r}"
+
+
+def test_read_only_shell_call_is_not_a_sink():
+    """`Bash(ls)` observes; a window cannot end there. Typing Bash by NAME made
+    78% of live windows unclassifiable."""
+    from staledep.effects import Risk
+    from staledep.shell import classify_command
+    for cmd in ("ls -la", "git status", "cd x && ls", "echo hi", "curl -s http://x"):
+        assert classify_command(cmd)[0].risk is Risk.READ, cmd
+    for cmd in ("rm -rf build", "git checkout main", "echo hi > f", "curl -o f http://x"):
+        assert classify_command(cmd)[0].risk is Risk.HIGH, cmd
+
+
+def test_unrecognised_command_stays_pessimistic():
+    """Guessing an unfamiliar command is harmless is the one error that makes
+    this dangerous rather than merely incomplete."""
+    from staledep.binding import Bind
+    from staledep.effects import Risk
+    from staledep.shell import classify_command
+    for cmd in ("python train.py", "npm install", "./deploy.sh", "make release"):
+        eff, bind = classify_command(cmd)
+        assert eff.risk is Risk.HIGH and bind is Bind.UNKNOWN, cmd
