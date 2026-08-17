@@ -33,21 +33,33 @@ from dataclasses import dataclass
 
 _NUM = re.compile(r"-?\d[\d,]*\.?\d*")
 
-#: Below this, coincidental matches are common: small integers appear everywhere.
-_MIN_MAGNITUDE = 10.0
+#: The floor applies to the TARGET being explained, not to the pool. Small money
+#: amounts collide constantly -- a 50.0 subscription read as 5% of a prior 1000.0
+#: purchase -- so a small target is not worth explaining. But a sum of small line
+#: items is exactly how a large total arises, and an earlier version applied this
+#: floor to the pool too, silently dropping 65.5 and 14.5 so 200.0 could never be
+#: reached. Two floors, because they answer different questions.
+_MIN_TARGET = 100.0
+#: Pool members only need to be large enough not to be an index or a count.
+_MIN_TERM = 1.0
 #: Combinatorial guard. 12 numbers is 4095 subsets; beyond that the odds of an
 #: accidental exact match stop being negligible and the cost stops being free.
 _MAX_TERMS = 12
-#: A sum of one term is a literal copy, already caught by lexical matching.
-_MIN_SUBSET = 2
+#: A sum of one term is a literal copy; a sum of TWO is usually coincidence --
+#: 100 + 1000 = 1100 matched a rent constant that was never computed from either.
+#: Three or more terms is a claim the arithmetic actually supports.
+_MIN_SUBSET = 3
 _TOL = 0.005
 
 #: Declared multipliers. Deliberately short: every entry is a rate a financial
 #: system actually applies, not a fitted constant.
+#: One rate only. vat_5 (0.05) and vat_20 (0.20) each produced pure coincidences
+#: on the real corpus: any figure is 5% or 20% of some other figure in a
+#: transaction log. 0.15 is the rate this domain actually applies, and a
+#: multi-rate table is a fishing licence rather than a hypothesis.
 RATES: dict[str, float] = {
-    "vat_15": 0.15, "vat_15_incl": 1.15,     # Ethiopian standard rate
-    "vat_20": 0.20, "vat_20_incl": 1.20,
-    "vat_5": 0.05, "vat_5_incl": 1.05,
+    "vat_15": 0.15,
+    "vat_15_incl": 1.15,
 }
 # `double`, `half` and `ten_pct` were here and are removed. They are not rates a
 # system applies, they are arithmetic coincidences: any figure and its double
@@ -82,7 +94,7 @@ def numbers_in(text: str) -> list[float]:
             v = float(raw.replace(",", ""))
         except ValueError:
             continue
-        if abs(v) >= _MIN_MAGNITUDE and v not in out:
+        if abs(v) >= _MIN_TERM and v not in out:
             out.append(v)
     return out
 
@@ -94,13 +106,16 @@ def explain(target: float, pool: list[float]) -> tuple[str, tuple[float, ...]] |
     specific explanation than a subset, so preferring it avoids attributing
     `1000 * 1.15` to whichever combination happens to reach 1150.
     """
-    if abs(target) < _MIN_MAGNITUDE:
+    if abs(target) < _MIN_TARGET:
         return None
 
-    for term in pool:
-        for name, rate in RATES.items():
-            if abs(term * rate - target) <= _TOL:
-                return f"rate:{name}", (term,)
+    # A rate match is only evidence if it is UNIQUE. If several pool figures
+    # explain the target under some rate, the relation is fitted, not found.
+    rate_hits = [(name, term) for term in pool for name, rate in RATES.items()
+                 if abs(term * rate - target) <= _TOL]
+    if len(rate_hits) == 1:
+        name, term = rate_hits[0]
+        return f"rate:{name}", (term,)
 
     usable = pool[:_MAX_TERMS]
     for size in range(_MIN_SUBSET, min(len(usable), _MAX_TERMS) + 1):

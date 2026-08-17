@@ -245,11 +245,22 @@ the most useful thing here.
 
 - **Not prevalence.** Precision-adjusting a flagged rate does not yield
   prevalence while false negatives are unquantified.
-- **Precision is ~93% and was never stratified by signal.** It comes from three
-  hand-audited samples of 14–18, so the interval is roughly 70–99%. Lexical
-  lineage is the sole basis for **49.9%** of flags, effect typing alone for
-  12.9%, both for 37.2% — so a lexical mechanism performing materially worse
-  than effect typing would be invisible in the pooled figure. Unresolved.
+- **Precision differs sharply by signal, and the pooled figure hid it.**
+  Stratified hand-audit (`python audit_stratified.py`), equal quota per signal,
+  fixed seed:
+
+  | signal | share of flags | precision |
+  |---|---|---|
+  | effect typing (STATE) | 28.9% | **~100%** (6/6) |
+  | lexical lineage | 71.1% | **~60%** (4/7, 2 clear false positives) |
+  | numeric lineage | 0% after tightening | no flags on this corpus |
+
+  **Lexical lineage carries 71% of all flags at roughly 60% precision.** The
+  earlier pooled ~93% was consistent with this and concealed it. The two clear
+  false positives were prose token-overlap — an agent-composed calendar
+  description matched a source on the generic words "meeting" and "discuss" —
+  and a write→write edge where both events came from the user's request rather
+  than one from the other. Sample size is 7; treat the 60% as directional.
 - **Recall is quantified but low.** 1/12 seeded classes are temporal *and*
   caught by the intended mechanism. Six classes have **zero** coverage:
   negative evidence, aggregates, derived values, laundering through an
