@@ -255,12 +255,17 @@ the most useful thing here.
   | lexical lineage | 71.1% | **~60%** (4/7, 2 clear false positives) |
   | numeric lineage | 0% after tightening | no flags on this corpus |
 
-  **Lexical lineage carries 71% of all flags at roughly 60% precision.** The
-  earlier pooled ~93% was consistent with this and concealed it. The two clear
-  false positives were prose token-overlap — an agent-composed calendar
-  description matched a source on the generic words "meeting" and "discuss" —
-  and a write→write edge where both events came from the user's request rather
-  than one from the other. Sample size is 7; treat the 60% as directional.
+  **Lexical lineage carries 71% of all flags.** A larger audit stratified by
+  matching rule found the ~60% first estimate was too pessimistic and rested on
+  7 samples: of 9 sampled `direct` matches, 7 are clearly genuine. Links break
+  down as **direct 74.0%, numeric 14.1%, token 11.8%**, and the two known
+  false-positive classes are small — prose token-overlap (11.8% of links at
+  most) and write-echo sources, where a write's output repeats its own arguments
+  so a later reuse appears to derive from it (4.2% of links).
+
+  A distinction that matters and was being conflated: **most lexical links have
+  READ sinks and never become windows at all.** Link precision and window
+  precision are different quantities; only the latter affects any reported rate.
 - **Recall is quantified but low.** 1/12 seeded classes are temporal *and*
   caught by the intended mechanism. Six classes have **zero** coverage:
   negative evidence, aggregates, derived values, laundering through an

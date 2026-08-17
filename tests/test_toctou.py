@@ -630,3 +630,43 @@ def test_rate_table_contains_no_coincidental_multipliers():
     assert not ({0.5, 2.0, 0.1, 1.1, 0.05, 0.2} & set(RATES.values())), \
         "a coincidental multiplier re-entered the rate table"
     assert all(k.startswith("vat_") for k in RATES), "every rate must be a declared tax rate"
+
+
+def test_reused_tool_call_id_does_not_overwrite_an_earlier_result():
+    """VERIFIED CORRUPTION: gpt-4-0125-preview reused one tool_call_id across two
+    different calls. Keying results by id let the second overwrite the first, so
+    a READ resolved to a later WRITE's confirmation and every provenance link
+    from that step was wrong. Results are queued per id and consumed in order."""
+    from staledep.trajectory import steps_from_messages
+
+    dup = "call_SAME"
+    msgs = [
+        {"role": "assistant", "tool_calls": [
+            {"function": "get_rating_reviews_for_hotels", "args": {}, "id": dup}]},
+        {"role": "tool", "tool_call_id": dup,
+         "tool_call": {"function": "get_rating_reviews_for_hotels", "args": {}},
+         "content": "{'Le Marais Boutique': 'Rating: 4.2'}", "error": None},
+        {"role": "assistant", "tool_calls": [
+            {"function": "reserve_hotel", "args": {"hotel": "Le Marais Boutique"}, "id": dup}]},
+        {"role": "tool", "tool_call_id": dup,
+         "tool_call": {"function": "reserve_hotel", "args": {}},
+         "content": "Reservation for Le Marais Boutique has been made successfully.",
+         "error": None},
+    ]
+    steps, _ = steps_from_messages(msgs)
+    assert "Rating" in str(steps[0].output), "the read must keep its own result"
+    assert "Reservation" in str(steps[1].output)
+
+
+def test_lexical_links_record_which_rule_matched():
+    """Precision differs by rule, so a pooled lexical figure hides it. Links
+    carry direct / numeric / token so each can be audited separately."""
+    from staledep.provenance import trace_from_log
+    from staledep.trajectory import Step
+
+    steps = [
+        Step(0, 0, "read_file", {}, "Pay UK12345678901234567890 the sum of 98.70", False),
+        Step(1, 1, "send_money", {"recipient": "UK12345678901234567890"}, "sent", False),
+    ]
+    links = trace_from_log(steps)
+    assert links and links[0].rule == "direct"

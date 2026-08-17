@@ -45,8 +45,12 @@ def steps_from_messages(messages: list[dict]) -> tuple[list[Step], set[int]]:
     agent still issued them, and whether they committed is recorded rather than
     inferred.
     """
-    outputs_by_id: dict[str, Any] = {}
-    errored_ids: set[str] = set()
+    # id -> QUEUE of results, not a single value. A model may reuse a
+    # tool_call_id across different calls (gpt-4-0125-preview does), and a plain
+    # dict lets the second result overwrite the first, so BOTH calls resolve to
+    # the later output. That silently attributes a write's confirmation to an
+    # earlier read and corrupts every provenance link from that step.
+    outputs_by_id: dict[str, list[tuple[Any, bool]]] = {}
     ordered_results: list[tuple[str, dict, Any, bool]] = []
 
     for msg in messages:
@@ -61,9 +65,7 @@ def steps_from_messages(messages: list[dict]) -> tuple[list[Step], set[int]]:
             )
         failed = bool(msg.get("error"))
         if cid:
-            outputs_by_id[cid] = content
-            if failed:
-                errored_ids.add(cid)
+            outputs_by_id.setdefault(cid, []).append((content, failed))
         ordered_results.append((call.get("function", ""), call.get("args") or {},
                                 content, failed))
 
@@ -83,8 +85,10 @@ def steps_from_messages(messages: list[dict]) -> tuple[list[Step], set[int]]:
                 continue
             args = call.get("args") or {}
             cid = call.get("id")
-            output = outputs_by_id.get(cid) if cid else None
-            failed = bool(cid and cid in errored_ids)
+            output, failed = None, False
+            queue = outputs_by_id.get(cid) if cid else None
+            if queue:
+                output, failed = queue.pop(0)     # consume in emission order
             if output is None:
                 for i, (rn, _, rout, rfail) in enumerate(ordered_results):
                     if rn == name:

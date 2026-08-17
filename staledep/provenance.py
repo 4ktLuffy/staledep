@@ -52,6 +52,7 @@ class ProvenanceLink:
     sink_tool: str
     arg_name: str
     value: str
+    rule: str = "direct"          # "direct" | "numeric" | "token"
 
     def __str__(self) -> str:
         return (
@@ -190,14 +191,22 @@ def trace_from_log(
                 # seen this output. Skip unless turn information is unavailable.
                 if turn >= 0 and src_turn >= 0 and src_turn == turn:
                     continue
-                direct = next((w for w in wanted if (w in src_text) or (w in src_nums)), None)
-                if direct is not None or _token_match(toks, src_text):
-                    links.append(ProvenanceLink(
-                        source_idx=src_idx, source_tool=src_tool,
-                        sink_idx=idx, sink_tool=name,
-                        arg_name=arg_name, value=str(arg_value),
-                    ))
-                    break
+                literal = next((w for w in wanted if w in src_text), None)
+                numeric = next((w for w in wanted if w in src_nums), None)
+                if literal is not None:
+                    rule = "direct"
+                elif numeric is not None:
+                    rule = "numeric"
+                elif _token_match(toks, src_text):
+                    rule = "token"
+                else:
+                    continue
+                links.append(ProvenanceLink(
+                    source_idx=src_idx, source_tool=src_tool,
+                    sink_idx=idx, sink_tool=name,
+                    arg_name=arg_name, value=str(arg_value), rule=rule,
+                ))
+                break
 
         if idx not in errored:
             text, nums = _output_haystack(output)
