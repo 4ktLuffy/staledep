@@ -95,7 +95,7 @@ def test_a_full_date_is_evidence_where_the_year_alone_is_not():
         ("create_calendar_event", {"start_time": "2024-05-19 16:00"}, None),
     ]
     links = trace_from_log(steps)
-    assert [(l.rule, l.value) for l in links] == [("date", "2024-05-19 16:00")]
+    assert [(lk.rule, lk.value) for lk in links] == [("date", "2024-05-19 16:00")]
 
 
 def test_the_most_specific_matching_value_is_credited():
@@ -106,7 +106,7 @@ def test_the_most_specific_matching_value_is_credited():
         ("read_file", {"p": "x"}, "due 2024-05-19 for invoice inv-2024-05-19-77"),
         ("send_money", {"note": "inv-2024-05-19-77"}, None),
     ]
-    rules = {l.rule for l in trace_from_log(steps)}
+    rules = {lk.rule for lk in trace_from_log(steps)}
     assert rules == {"direct"}, "full identifier must win over its date substring"
 
 
