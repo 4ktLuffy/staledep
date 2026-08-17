@@ -726,7 +726,7 @@ def test_a_window_resting_only_on_shared_words_is_marked_weak():
 def test_one_strong_link_outranks_any_number_of_weak_ones():
     w = find_windows(["get_iban", "send_money"], "banking")[0]
     weak = [ProvenanceLink(w.check_idx, "get_iban", w.use_idx, "send_money",
-                           "a%d" % i, "v", rule="token") for i in range(5)]
+                           f"a{i}", "v", rule="token") for i in range(5)]
     strong = ProvenanceLink(w.check_idx, "get_iban", w.use_idx, "send_money",
                             "recipient", "DE89370400440532013000", rule="direct")
     assert evidence_tier(w, weak + [strong]) == "strong"
