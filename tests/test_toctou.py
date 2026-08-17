@@ -70,9 +70,44 @@ def test_small_bare_integers_are_not_evidence(raw):
     assert not _numeric_is_distinctive(raw)
 
 
-@pytest.mark.parametrize("raw", ["98.70", "50.0", "2024", "60161331926819"])
+@pytest.mark.parametrize("raw", ["98.70", "50.0", "60161331926819"])
 def test_amounts_and_identifiers_are_evidence(raw):
     assert _numeric_is_distinctive(raw)
+
+
+@pytest.mark.parametrize("raw", ["2024", "2022", "1999"])
+def test_bare_years_are_not_evidence(raw):
+    """A year has four digits, so the digit-count test admitted it as an
+    identifier. Measured on the corpus, 96.4% of numeric-rule matches were a
+    bare year and 706 of 808 were literally 2024 -- every date argument in the
+    workspace suite matched every earlier output mentioning any 2024 date.
+    This test previously asserted the opposite."""
+    assert not _numeric_is_distinctive(raw)
+
+
+def test_a_full_date_is_evidence_where_the_year_alone_is_not():
+    """The year matches were standing in for a real relation. A timestamp
+    argument is not a substring of a date-only output, so whole-string matching
+    missed it; the date component finds the same link for the right reason."""
+    steps = [
+        ("get_day_calendar_events", {"day": "2024-05-19"},
+         "Event: standup, start 2024-05-19 09:00"),
+        ("create_calendar_event", {"start_time": "2024-05-19 16:00"}, None),
+    ]
+    links = trace_from_log(steps)
+    assert [(l.rule, l.value) for l in links] == [("date", "2024-05-19 16:00")]
+
+
+def test_the_most_specific_matching_value_is_credited():
+    """`wanted` is a set and Python randomises string hashing per process, so an
+    arbitrary scan order made which value matched -- and so which rule was
+    recorded -- differ between runs on identical input."""
+    steps = [
+        ("read_file", {"p": "x"}, "due 2024-05-19 for invoice inv-2024-05-19-77"),
+        ("send_money", {"note": "inv-2024-05-19-77"}, None),
+    ]
+    rules = {l.rule for l in trace_from_log(steps)}
+    assert rules == {"direct"}, "full identifier must win over its date substring"
 
 
 def test_password_digits_do_not_link_to_transactions():

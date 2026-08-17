@@ -30,17 +30,34 @@ _MIN_NUMERIC_DIGITS = 4         # or a fractional part
 _NUMERIC = re.compile(r"-?\d+(?:\.\d+)?")
 _IDENTIFIERISH = re.compile(r"[@._\-/\d]")
 
+#: A calendar year is four digits, so the digit-count test above admitted it as
+#: an identifier. It is the opposite: a constant of the corpus. Measured, 96.4%
+#: of all numeric-rule matches were a bare year and 706 of 808 were literally
+#: 2024 -- every date argument in the workspace suite "matched" every earlier
+#: output that mentioned any 2024 date. That is co-occurrence, not data-flow.
+_YEARLIKE = re.compile(r"^(?:19|20)\d\d$")
+#: What the year matches were standing in for. A full date IS specific enough to
+#: be evidence, and is usually present in both output and argument -- but a
+#: timestamp argument ("2024-05-19 16:00") is not a substring of a date-only
+#: output, so whole-string matching missed it and the year caught it by accident.
+#: Extracting the date component finds the same links for the right reason.
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
 
 def _numeric_is_distinctive(raw: str) -> bool:
     """Reject numbers too common to be evidence of data-flow.
 
     A bare 1, 2 or 3 appears in nearly every output. Require either enough
-    digits to be an identifier (IBAN, id, year) or a fractional part (a money
-    amount, which is what actually flows between financial calls).
+    digits to be an identifier (IBAN, id) or a fractional part (a money amount,
+    which is what actually flows between financial calls). Years are excluded
+    explicitly: they pass the digit test and carry no information.
     """
     if "." in raw:
         return True
-    return len(raw.lstrip("-").lstrip("0")) >= _MIN_NUMERIC_DIGITS
+    body = raw.lstrip("-").lstrip("0")
+    if _YEARLIKE.match(body):
+        return False
+    return len(body) >= _MIN_NUMERIC_DIGITS
 
 
 @dataclass(frozen=True)
@@ -52,7 +69,7 @@ class ProvenanceLink:
     sink_tool: str
     arg_name: str
     value: str
-    rule: str = "direct"          # "direct" | "numeric" | "token"
+    rule: str = "direct"     # "direct" | "date" | "numeric" | "token"
 
     def __str__(self) -> str:
         return (
@@ -98,6 +115,7 @@ def _distinctive_values(value: Any) -> set[str]:
             len(s) >= _MIN_SHORT_STR_LEN and _IDENTIFIERISH.search(s)
         ):
             out.add(s.lower())
+        out |= {d for d in _DATE.findall(s)}
         out |= _normalise_numbers(s)
         return out
     if isinstance(value, (list, tuple, set)):
@@ -179,7 +197,12 @@ def trace_from_log(
 
     for idx, turn, name, kwargs, output in norm:
         for arg_name, arg_value in (kwargs or {}).items():
-            wanted = _distinctive_values(arg_value)
+            # Longest first, so the most specific matching value is the one
+            # credited. `wanted` is a set, and Python randomises string hashing
+            # per process, so an arbitrary scan order made which value matched --
+            # and therefore which rule was recorded -- differ between runs on
+            # identical input. An audit cannot rest on that.
+            wanted = sorted(_distinctive_values(arg_value), key=len, reverse=True)
             toks = _tokens(arg_value)
             if not wanted and not toks:
                 continue
@@ -194,7 +217,10 @@ def trace_from_log(
                 literal = next((w for w in wanted if w in src_text), None)
                 numeric = next((w for w in wanted if w in src_nums), None)
                 if literal is not None:
-                    rule = "direct"
+                    # Tagged apart from `direct` so the per-rule precision audit
+                    # can see it. It is a literal substring match like any other,
+                    # but of a component rather than the whole argument.
+                    rule = "date" if _DATE.fullmatch(literal) else "direct"
                 elif numeric is not None:
                     rule = "numeric"
                 elif _token_match(toks, src_text):

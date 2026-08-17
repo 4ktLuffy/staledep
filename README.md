@@ -266,6 +266,27 @@ the most useful thing here.
   A distinction that matters and was being conflated: **most lexical links have
   READ sinks and never become windows at all.** Link precision and window
   precision are different quantities; only the latter affects any reported rate.
+  Measuring the rule mix *restricted to links that form a window* exposed the
+  next defect, invisible in the pooled figures: `numeric` is 14.1% of links but
+  was **39.4% of the links backing temporal windows**, a 2.8× enrichment.
+
+  **96.4% of those matches were a bare calendar year** — 706 of 808 literally
+  `2024`. A year is four digits, so the "enough digits to be an identifier" test
+  admitted it; in fact it is a constant of the corpus, and every date argument in
+  the workspace suite matched every earlier output mentioning any 2024 date.
+
+  The links were mostly real, found for the wrong reason. `get_day_calendar_events`
+  → `create_calendar_event` is a genuine double-booking race; it just isn't
+  evidenced by the shared year. Years are now rejected and the **full date** is
+  matched instead, which is a literal substring match like any other. Evidence
+  resting on a bare year went **39.4% → 0%** of temporal-window links, the new
+  `date` rule backs 19.0% at **8/8 sampled genuine**, and the trajectory-level
+  rates barely move (temporal 655 → 651, high-risk danger set 92 → 92).
+
+  Rule attribution was also nondeterministic: candidate values live in a `set` and
+  Python randomises string hashing per process, so which value matched — and so
+  which rule was recorded — differed between runs on identical input. Verified by
+  reproduction across seeds. The scan now credits the longest matching value.
 - **Recall is quantified but low.** 1/12 seeded classes are temporal *and*
   caught by the intended mechanism. Six classes have **zero** coverage:
   negative evidence, aggregates, derived values, laundering through an
