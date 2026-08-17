@@ -67,6 +67,75 @@ independent models — several are defense variants of the same base) shipped wi
 | With a high-risk sink | 15.9% |
 | Candidates per tool call | 0.078 – 0.398 across configurations |
 
+### Conditioned on who can move the resource
+
+An unconditioned candidate rate is close to a restatement of what agency is. A
+candidate over state only the principal can write has no adversary in a position
+to move it, so every resource is annotated with its writer and rates are reported
+per threat model:
+
+| suite | candidate | strict | moderate | multi-agent |
+|---|---|---|---|---|
+| banking | 47.8% | **11.3%** | 34.3% | 47.1% |
+| slack | 73.4% | 48.2% | 48.2% | 73.4% |
+| travel | 26.2% | **0.0%** | 26.2% | 26.2% |
+| workspace | 39.8% | 39.8% | 39.8% | 39.8% |
+| **overall** | 45.4% | **28.7%** | 37.9% | 45.3% |
+| high-risk sink | — | **10.6%** | 15.2% | 15.7% |
+
+`strict` = arbitrary third parties only. `moderate` adds counterparties writing
+their own records. `multi_agent` adds concurrent agents, and is close to
+unconditioned because nearly everything is agent-writable.
+
+Travel falls to zero under `strict`: every travel candidate is a provider
+changing their own prices or availability, which is a business race rather than a
+security one. That the filter annihilates an entire suite is the check that it
+is doing work.
+
+### Recall by dependency class
+
+Twelve synthetic trajectories each carry a known dependency of one class
+(`python report_recall.py`):
+
+| | count |
+|---|---|
+| Flagged by any rule | 6/12 (50%) |
+| **Handled by the intended mechanism** | **3/12 (25%)** |
+
+Three catches are incidental — a control dependence is caught only because the
+sink happens to declare the same resource, an alias never has to be resolved when
+both calls touch one coarse resource, and a phantom is caught on a literal
+amount. Reconstruct those cases slightly differently and they disappear.
+
+Classes with **no** coverage: negative evidence, aggregates, derived values
+(currency conversion), laundering through an intermediate tool, implicit reads
+inside write tools, and cross-system policy dependence. Aggregates and derived
+values are exactly what invoice work produces, which is uncomfortable for a
+financial-domain tool and is stated here rather than discovered later.
+
+### Attack-active runs contain no free exploitability evidence
+
+AgentDojo ships 30,366 attack-active trajectories. Checking whether its
+injections already move checked state:
+
+| | attack-active | attack-free |
+|---|---|---|
+| mean tool calls | 4.1 | 3.8 |
+| `read → mutate → use` on one resource | 4.90% | 3.23% |
+| — of which agent self-batching | 3.85% | 2.52% |
+| — **cross-tool mutation** | **1.05%** | **0.71%** |
+
+The signature is dominated by the agent batching its own writes. Cross-tool
+mutation is 1.05% against 0.71% on trajectories 8% longer — confound, not signal.
+AgentDojo's injections redirect the agent's *goal*; they do not move state it
+already checked, so a mutation primitive has to be built (`staledep/mutate.py`).
+
+A first attempt at this measurement returned exactly zero, which was an artifact
+of this codebase: `find_windows()` invalidates a check when something writes the
+checked resource, making "a window containing a mutation of its own resource"
+definitionally empty. Candidate detection and exploitation detection need
+different logic.
+
 **Report the normalized figures, not the binary rate.** The binary rate largely
 tracks how many calls a model made before stopping. Under normalization the
 model ranking scrambles completely — a configuration near the bottom of the
@@ -142,3 +211,14 @@ pytest -q
 ## License
 
 MIT
+
+## Development note
+
+`agentdojo` is installed editable from `reference/`. **Renaming the project
+directory breaks the venv** — both the shebangs in `.venv/bin/` and the editable
+install path hardcode the old location. Recreate rather than repair:
+
+```bash
+rm -rf .venv && python3.11 -m venv .venv
+.venv/bin/pip install -e reference/agentdojo pytest ruff
+```
