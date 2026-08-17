@@ -301,3 +301,37 @@ but which this model **fails at baseline**. Sixteen runs returned a uniform "no
 effect" that meant nothing: a mutation cannot change an outcome already False.
 Selecting the task by window quality rather than by baseline success made the
 experiment void.
+
+## Exploitability is not measurable on this hardware
+
+The mutation harness and the action oracle are built and tested. They cannot be
+exercised locally, because neither 16GB-class model produces the read-then-act
+trajectory an exploit requires.
+
+Running every banking task with the call recorder (`find_actionable.py`):
+
+| model | result |
+|---|---|
+| `qwen3.5:4b-mlx` | all 16 tasks terminate after **exactly one read call**. No `send_money`, no `update_*`, no `schedule_*` |
+| `granite4:7b-a1b-h` | mostly **zero** calls; reaches a sink on one task (`update_user_info`), with no preceding read and therefore no window |
+
+You cannot redirect a payment that never happens. **Exploitability measurement
+needs an agent strong enough to act**, which on this setup means a hosted free
+tier rather than a local model.
+
+Two things follow.
+
+**The instrument is unaffected.** Items measured over the 2,540 published
+AgentDojo trajectories need no local agent at all — those runs come from GPT-4o,
+Claude, Gemini and Llama, which do reach sinks. Detection, conditioning and
+seeded recall all stand.
+
+**A capability split worth noting.** `qwen3.5:4b-mlx` scored 100% on single-shot
+invoice extraction, including both negative controls, and cannot chain a read
+into an action even once. Single-turn structured output and multi-turn agentic
+action are different capabilities; this hardware supports the first and not the
+second.
+
+Baseline caution: six banking tasks report `utility=True` while the agent makes
+a single read and never acts. Any "N/16 passed" figure on this suite should be
+read alongside what the agent actually emitted.
