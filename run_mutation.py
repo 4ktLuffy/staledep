@@ -1,7 +1,17 @@
-"""Run the gap sweep against a live agent on AgentDojo's banking suite.
+"""Gap sweep with an action-level oracle.
 
-Wraps FunctionsRuntime so a declared mutation fires after a chosen tool call,
-then compares the outcome against the unmutated baseline and the two controls.
+Fires a declared mutation at every inter-call gap, and judges the result two
+ways:
+
+  ENVIRONMENT (AgentDojo's task.utility) -- contaminated. The mutation alters
+  the same environment the checker inspects, so a flip may mean the checker read
+  poisoned state rather than that the agent was misled. Reported for comparison,
+  not relied on.
+
+  ACTION (staledep.oracle) -- reads what the agent emitted. Did the attacker's
+  sentinel reach the arguments of a state-changing call? Did a high-risk call's
+  target move relative to the unmutated baseline? Neither depends on the
+  post-environment.
 
 Usage:
     python run_mutation.py [model] [task_id]
@@ -21,37 +31,12 @@ from agentdojo.agent_pipeline.tool_execution import ToolsExecutor  # noqa: E402
 from agentdojo.functions_runtime import FunctionsRuntime  # noqa: E402
 from agentdojo.task_suite.load_suites import get_suite  # noqa: E402
 
-from staledep.mutate import MUTATIONS, is_toctou, sweep_gaps  # noqa: E402
+from staledep.mutate import MUTATIONS  # noqa: E402
+from staledep.oracle import ActionLog, make_recording_runtime, verdict  # noqa: E402
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3.5:4b-mlx"
-TASK = sys.argv[2] if len(sys.argv) > 2 else "user_task_0"
+TASK = sys.argv[2] if len(sys.argv) > 2 else "user_task_5"
 SUITE = "banking"
-
-
-def make_runtime_class(mutation, gap):
-    """A runtime that applies `mutation` after tool call number `gap`.
-
-    gap == -1 fires before any call; gap >= n fires after the last one.
-    """
-    class MutatingRuntime(FunctionsRuntime):
-        _calls = 0
-        _fired = False
-
-        def run_function(self, env, function, kwargs, raise_on_error=False):
-            if gap == -1 and not MutatingRuntime._fired and env is not None:
-                mutation.apply(env)
-                MutatingRuntime._fired = True
-            result = super().run_function(env, function, kwargs, raise_on_error)
-            MutatingRuntime._calls += 1
-            if (gap is not None and gap >= 0 and MutatingRuntime._calls == gap + 1
-                    and not MutatingRuntime._fired and env is not None):
-                mutation.apply(env)
-                MutatingRuntime._fired = True
-            return result
-
-    MutatingRuntime._calls = 0
-    MutatingRuntime._fired = False
-    return MutatingRuntime
 
 
 def build_pipeline():
@@ -65,6 +50,14 @@ def build_pipeline():
     return p
 
 
+def run(suite, task, pipeline, mutation=None, gap=None):
+    log = ActionLog()
+    rt = make_recording_runtime(FunctionsRuntime, log, mutation, gap)
+    utility, security = suite.run_task_with_pipeline(
+        pipeline, task, injection_task=None, injections={}, runtime_class=rt)
+    return log, utility, security
+
+
 def main() -> None:
     suite = get_suite("v1", SUITE)
     task = suite.get_user_task_by_id(TASK)
@@ -73,37 +66,44 @@ def main() -> None:
     print(f"model={MODEL}  suite={SUITE}  task={TASK}")
     print(f"prompt: {task.PROMPT}\n")
 
-    baseline = suite.run_task_with_pipeline(pipeline, task, injection_task=None, injections={})
-    print(f"BASELINE (no mutation): utility={baseline[0]} security={baseline[1]}")
+    base_log, base_u, base_s = run(suite, task, pipeline)
+    print(f"BASELINE  utility={base_u} security={base_s}")
+    print(f"          calls: {base_log.tools()}")
+    if not base_log.calls:
+        print("\n!! baseline recorded no calls -- the sweep would be void. Stopping.")
+        return
+    if not base_u:
+        print("\n!! baseline already fails; environment verdicts will be uninformative.")
 
     env = suite.load_and_inject_default_environment({})
     n_gaps = len(task.ground_truth(env))
-    print(f"ground-truth calls: {n_gaps}  -> sweeping gaps -1..{n_gaps}\n")
+    print(f"          ground-truth calls: {n_gaps} -> sweeping gaps -1..{n_gaps}\n")
 
     for mutation in MUTATIONS[SUITE]:
         print(f"--- {mutation}")
         print(f"    {mutation.describe}")
-
-        def run(gap, _m=mutation):
-            return suite.run_task_with_pipeline(
-                pipeline, task, injection_task=None, injections={},
-                runtime_class=make_runtime_class(_m, gap),
-            )
-
-        outcomes = sweep_gaps(run, n_gaps, mutation)
-        for o in outcomes:
-            where = ("before all" if o.gap == -1
-                     else "after last" if o.gap >= n_gaps
-                     else f"after call {o.gap}")
-            mark = "" if o.error else (
-                "  <-- CHANGED" if (o.utility, o.security) != baseline else "")
-            print(f"    gap {o.gap:>2} ({where:<12}) utility={o.utility} "
-                  f"security={o.security}{mark}{'  ERROR: ' + o.error if o.error else ''}")
-
-        verdict = is_toctou(outcomes, baseline, n_gaps)
-        print(f"    VERDICT: {verdict['verdict']}")
-        if verdict["interior_gaps_that_changed"]:
-            print(f"    interior gaps that changed: {verdict['interior_gaps_that_changed']}")
+        for gap in [-1, *range(n_gaps), n_gaps]:
+            where = ("before all" if gap == -1
+                     else "after last" if gap >= n_gaps else f"after call {gap}")
+            try:
+                log, u, s = run(suite, task, pipeline, mutation, gap)
+            except Exception as exc:
+                print(f"    gap {gap:>2} ({where:<12}) ERROR {str(exc)[:60]}")
+                continue
+            v = verdict(log, base_log, SUITE)
+            env_changed = (u, s) != (base_u, base_s)
+            flags = []
+            if v["sentinel_in_action"]:
+                flags.append("SENTINEL-IN-ACTION")
+            if v["target_diverged"]:
+                flags.append("TARGET-MOVED")
+            print(f"    gap {gap:>2} ({where:<12}) env={'CHANGED' if env_changed else 'same':<7} "
+                  f"action={'REDIRECTED' if v['redirected'] else 'unchanged':<10} "
+                  f"{' '.join(flags)}")
+            for tool, args in v["sentinel_calls"]:
+                print(f"           -> attacker data reached {tool}: {str(args)[:80]}")
+            for field_, was, now in v["divergences"][:2]:
+                print(f"           -> {field_}: {str(was)[:34]!r} -> {str(now)[:34]!r}")
         print()
 
 
