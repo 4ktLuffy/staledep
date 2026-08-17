@@ -1,5 +1,12 @@
 """Candidate rate conditioned on who can actually move the resource.
 
+SUPERSEDED by report_waterfall.py. This stage conditions on WHO can write a
+resource but not on WHETHER the sink can be moved at all -- a snapshot sink that
+copied the checked value into its arguments is immune however hostile the
+writer. Kept because the threat-model tiers are still informative, and because
+the annotations here are the fragile part (one contestable flip moves the strict
+rate 5.31 points) while binding is not.
+
 The binary rate from measure_published.py is close to tautological: read-then-act
 is what agency is. This reports the subset an adversary is in a position to
 exploit, under three threat models, which is the threat statement.
@@ -20,6 +27,7 @@ MODELS = ["strict", "moderate", "multi_agent"]
 
 
 def main() -> None:
+    print("NOTE: this is an INTERMEDIATE stage of the measurement. The reported\n      figure is superseded by report_waterfall.py, which additionally\n      excludes snapshot-only flows -- candidates whose sink copied the\n      checked value into its arguments and cannot be moved by mutating\n      state. See README.\n")
     per = collections.defaultdict(lambda: collections.defaultdict(int))
     total = collections.defaultdict(int)
 

@@ -190,44 +190,79 @@ calls and are excluded; 57 model-task cells are absent from the upstream data.
 
 ### Retracted
 
-Earlier drafts reported two findings and a comparison. All are withdrawn:
+Every headline this project has published has been withdrawn or narrowed after
+review. They are listed rather than quietly edited, because the corrections are
+the most useful thing here.
+
+**Measurements**
+
+- ~~"45.4% of trajectories contain a stale-dependency candidate"~~ — a broad
+  read-then-act proxy, not a danger figure. Superseded by the waterfall: most of
+  that population is snapshot flows that mutation cannot move.
+- ~~"28.7% strict / 10.6% high-risk"~~ — superseded for the same reason, and it
+  rested on threat-model annotations one contestable flip can move 5.31 points.
+- ~~"3/12 handled by the intended mechanism (25% recall)"~~ — counted
+  `literal-copy` and `synthesised-text` as successes, which produce **snapshot**
+  windows. The detector was being credited for catching flows this same document
+  calls safe. The defensible figure is **1/12 (8%)**.
+- ~~"3.5× higher than the published 12%"~~ — numerology, multiplying
+  incompatible experimental units.
+
+**Findings**
 
 - ~~"Capability correlates with exposure"~~ — an artifact. Does not survive
-  normalization by tool-call count.
+  normalization by tool-call count; the model ranking scrambles.
 - ~~"Prompt-injection defenses don't help"~~ — definitionally expected. They
   operate on message content and cannot change the read/act structure of a
-  benign trajectory. Only `tool_filter` moves the number, and removing
-  unnecessary authority is least privilege, not a fake defense.
-- ~~"3.5× higher than the published 12%"~~ — numerology. It multiplied
-  incompatible experimental units. The figures are not comparable: different
-  criterion, different task subset, different counting unit.
+  benign trajectory. `tool_filter` moves the number by removing authority, which
+  is least privilege, not a fake defense.
+- ~~"Banking high-risk exploitability is 0.0%"~~ — an artifact of classifying
+  binding **per tool**. `send_money` is snapshot for its copied recipient and
+  dereference for its live source account. The real figure is 2.0%.
+- ~~"The first mutation sweep demonstrates pre-check poisoning"~~ — it measured
+  a known-buggy AgentDojo utility check. The agent never issued a payment there
+  was anything to redirect.
+- ~~"4 of 16 banking utility checks are vacuous"~~ — one is a defect (already
+  filed upstream as issue #161); the other three are intentional and documented
+  in their own source comments. No upstream contribution was made.
+
+**Method errors**
+
+- An audit of the 92-trajectory danger set appeared to find 13 entries the
+  filter should not have flagged. The filter was correct; the audit checked the
+  first file in each task directory rather than the qualifying one. Made twice
+  before being caught.
+- A regression test was written asserting a bug rather than the documented
+  intent (`target_diverged` treating a suppressed call as unchanged).
 
 ## Scope: what this does not claim
 
-- **Precision was never stratified by signal.** Lexical lineage is the sole
-  basis for **49.9%** of flags, effect typing alone for 12.9%, both for 37.2%.
-  The ~93% figure is pooled across three hand-audited samples of 14–18, so a
-  lexical mechanism running materially worse than effect typing would be
-  invisible in it. Unresolved.
+- **Not prevalence.** Precision-adjusting a flagged rate does not yield
+  prevalence while false negatives are unquantified.
+- **Precision is ~93% and was never stratified by signal.** It comes from three
+  hand-audited samples of 14–18, so the interval is roughly 70–99%. Lexical
+  lineage is the sole basis for **49.9%** of flags, effect typing alone for
+  12.9%, both for 37.2% — so a lexical mechanism performing materially worse
+  than effect typing would be invisible in the pooled figure. Unresolved.
+- **Recall is quantified but low.** 1/12 seeded classes are temporal *and*
+  caught by the intended mechanism. Six classes have **zero** coverage:
+  negative evidence, aggregates, derived values, laundering through an
+  intermediate tool, implicit reads inside write tools, and cross-system policy
+  dependence. For the financial domain specifically, aggregates and derived
+  values are the highest-value classes and both are in the zero-coverage set.
 - **The threat-model annotations are fragile.** 29 resources, assigned by me
   from AgentDojo environment source. Flipping a single contestable one
   (`slack.channels` from agent to untrusted) moves the strict rate by
   **+5.31 points**. The waterfall's `temporal` stage does not depend on them —
   binding is a property of the tool signature — but the attacker-writable stage
   does.
-
-- **Not prevalence.** Precision-adjusting a flagged rate does not yield
-  prevalence while false negatives are unquantified.
-- **Precision ≈93%**, from three hand-audited samples of 14–18. The interval on
-  that is roughly 70–99%. Too small to stratify.
-- **Recall unquantified.** Known structural blind spots: control dependence
-  (a read gates *whether* a call happens), negative evidence ("no invoice
-  exists"), aggregates and arithmetic, semantic transformation, aliasing,
-  mutable references, laundering through intermediate tools, and implicit reads
-  inside write tools.
+- **Binding classification carries judgement calls.** `(resource → sink)` labels
+  are near-mechanical from the signature, but not free of opinion: whether
+  `update_user_info` dereferences an implicit current-user record is arguable.
+  `unknown` is never folded into the exploitable set.
 - **Effect declarations are self-reported.** A third-party tool that
   under-declares silently removes edges.
-- **Attack-free runs only.**
+- **Attack-free runs only.** Injection-active trajectories are excluded.
 
 ## Related work
 
@@ -282,10 +317,6 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-## License
-
-MIT
-
 ## Development note
 
 `agentdojo` is installed editable from `reference/`. **Renaming the project
@@ -296,6 +327,14 @@ install path hardcode the old location. Recreate rather than repair:
 rm -rf .venv && python3.11 -m venv .venv
 .venv/bin/pip install -e reference/agentdojo pytest ruff
 ```
+
+---
+
+# Appendix: how the corrections happened
+
+Kept because the sequence is more useful than any single figure: each
+section records a measurement that looked clean, what checking it revealed,
+and what had to be withdrawn.
 
 ## Why the action oracle exists
 
@@ -376,7 +415,13 @@ effect" that meant nothing: a mutation cannot change an outcome already False.
 Selecting the task by window quality rather than by baseline success made the
 experiment void.
 
-## Exploitability is not measurable on this hardware
+## Dynamic exploitability confirmation is blocked on this hardware
+
+The *ceiling* on exploitability is computed statically and needs no agent: see
+the waterfall above, where binding classification removes every candidate whose
+sink copied the checked value into its arguments. What cannot be done locally is
+the dynamic half — confirming, by mutating state mid-trajectory, that a
+dereferencing sink actually flips its effect.
 
 The mutation harness and the action oracle are built and tested. They cannot be
 exercised locally, because neither 16GB-class model produces the read-then-act
@@ -395,10 +440,10 @@ tier rather than a local model.
 
 Two things follow.
 
-**The instrument is unaffected.** Items measured over the 2,540 published
-AgentDojo trajectories need no local agent at all — those runs come from GPT-4o,
-Claude, Gemini and Llama, which do reach sinks. Detection, conditioning and
-seeded recall all stand.
+**The instrument is unaffected.** Everything in the waterfall is measured over
+the 2,540 published AgentDojo trajectories and needs no local agent at all —
+those runs come from GPT-4o, Claude, Gemini and Llama, which do reach sinks.
+Detection, binding classification, and seeded recall all stand.
 
 **A capability split worth noting.** `qwen3.5:4b-mlx` scored 100% on single-shot
 invoice extraction, including both negative controls, and cannot chain a read
@@ -441,4 +486,8 @@ test asserting every resource in every effect table has a declared writer.
 silently dropped the TOCTOU-vs-corruption discrimination — the controls were
 still computed and never applied. `sweep_gaps`, `is_toctou`, `Outcome` and
 `evaluate` had no callers at all.
+
+## License
+
+MIT
 

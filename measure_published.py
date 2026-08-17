@@ -1,5 +1,9 @@
 """Measure stale-dependency candidate rate across AgentDojo's published runs.
 
+SUPERSEDED by report_waterfall.py. This reports the broad read-then-act proxy,
+which is close to tautological on its own and is NOT a danger figure: most of
+that population is snapshot flows that state mutation cannot move.
+
 Reports the binary per-trajectory rate, which is close to tautological on its
 own -- read-then-act is what agency is. Use report_conditioned.py for the rate
 conditioned on who can actually move the resource, which is the threat statement."""
@@ -55,4 +59,7 @@ for k, s in per_suite.items():
 
 print("\nOVERALL: %d trajectories, %.1f%% contain a candidate window, %.1f%% high-risk" % (
     grand["n"], 100*grand["vuln"]/grand["n"], 100*grand["high"]/grand["n"]))
-print("NOTE: binary rate tracks how much the model did. Not comparable to published\n      figures using different criteria. See README.")
+print("NOTE: SUPERSEDED -- this is the broad proxy, not a danger figure. Most of\n"
+      "      this population is snapshot flows that mutation cannot move. Run\n"
+      "      report_waterfall.py for the staged measurement. Not comparable to\n"
+      "      published figures using different criteria. See README.")
