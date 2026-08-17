@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agenttx"
+name = "staledep"
 version = "0.1.0"
 description = "Detect time-of-check-to-time-of-use windows in LLM agent trajectories"
 readme = "README.md"
@@ -26,7 +26,7 @@ bench = ["agentdojo"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["agenttx"]
+packages = ["staledep"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

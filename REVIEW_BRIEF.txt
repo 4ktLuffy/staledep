@@ -1,0 +1,178 @@
+REVIEW REQUEST — AgentTX: TOCTOU detection and enforcement for LLM agent tool calls
+
+I want you to attack this hard. Tell me what is wrong, what is overclaimed, what
+is already solved elsewhere, and what I have not thought of. Do not be polite
+about it. If the core idea is weak, say so plainly and say why.
+
+--------------------------------------------------------------------------------
+1. WHAT THE PROJECT IS
+
+An LLM agent reads state at one step and acts on it several steps later. Nothing
+guarantees the state is unchanged in between. That interval is a time-of-check-to-
+time-of-use (TOCTOU) window:
+
+    get_iban()          -> DE89370400440532013000        # check
+    ... other steps ...                                   # <- window
+    send_money(recipient="DE89370400440532013000")        # use
+
+Two phases:
+  Phase 1 (BUILT)   - detect these windows automatically in agent trajectories.
+  Phase 2 (PLANNED) - prevent exploitation: a middleware layer that mints a
+                      capability token at check time with the observed state
+                      version embedded, and aborts the later call if the version
+                      no longer matches.
+
+Domain focus is financial/procurement workflows (VAT validation, approval limits,
+supplier records), because that is where I have production experience.
+
+--------------------------------------------------------------------------------
+2. PRIOR ART I AM AWARE OF
+
+- arXiv:2508.17155 "Mind the Gap: TOCTOU Vulnerabilities in LLM-Enabled Agents"
+  Hand-labelled a filtered subset of AgentDojo (97 tasks -> 66 kept, 56 judged
+  vulnerable). Mitigations were heuristic: prompt rewriting, state integrity
+  monitoring, tool-fusing. Combined, they moved vulnerable trajectories from
+  12% to 8%. Automated detection reached 25% true-positive rate. Benchmark NOT
+  released.
+
+- arXiv:2608.13900 "Agentic Transaction: Towards ACID-Compliant Agent Systems"
+  (Tsinghua). Claims idempotency keys, write-ahead action logs, checkpointing,
+  automatic compensation. I read the released code: grep finds ZERO files
+  mentioning idempotency, capability, rollback, compensation, or state
+  versioning. It is a data-science agent with an exploration-execution-validation
+  retry loop, evaluated on KramaBench for task success, not security.
+
+- arXiv:2603.00476 "Atomicity for Agents" (browser agents)
+- arXiv:2606.29073 "Benchmarking Security Invariants in MCP-Style Agent Runtimes"
+
+Classical prior art I am explicitly NOT claiming to invent: optimistic
+concurrency control, capability-based security, the Saga pattern, idempotency
+keys. My claim is applying them to agent tool calls, which currently has no
+shipped implementation.
+
+--------------------------------------------------------------------------------
+3. WHAT I BUILT (PHASE 1, DONE)
+
+A Python library detecting TOCTOU windows via two independent signals:
+
+  (a) EFFECT TYPING - every tool declares the resources it reads and writes plus
+      a risk tier (read / write / high). A READ of resource R followed by a
+      state-changing call that depends on R is a window.
+
+  (b) ARGUMENT PROVENANCE - links a later call's argument values back to the
+      earlier tool output they came from. This catches windows effect typing
+      cannot see. Example: agent calls read_file then send_money with an amount
+      and recipient taken FROM that file. No shared resource, but swapping the
+      file redirects the payment.
+
+Provenance matching is deliberately conservative. Rejected as evidence: bare
+small integers, short prose fragments, error-message text. Synthesised arguments
+are caught by token matching, guarded by a two-token minimum with at least one
+substantial word.
+
+1,252 lines, 26 tests, lint clean, CI configured.
+
+--------------------------------------------------------------------------------
+4. RESULTS
+
+Measured over 2,540 attack-free trajectories from 29 models whose runs ship with
+AgentDojo (gpt-4o, claude-3.5/3.7-sonnet, gemini, llama, command-r, etc.):
+
+    Trajectories containing a TOCTOU window          45.4%
+    Containing a window with a HIGH-risk sink        15.9%
+    Precision-adjusted estimate                      ~42%
+
+    By suite: slack 73.4% | banking 47.8% (32.5% high-risk)
+              workspace 39.8% | travel 26.2%
+
+The paper reports 12%. My HYPOTHESIS for the ~3.5x gap: their 12% is
+detection-limited, not prevalence. Their automated detector had 25% TPR, and
+0.42 x 0.25 = 0.105, which is close to their reported figure. I have NOT proven
+this. It is arithmetic that fits.
+
+Two results I did not expect:
+
+  - CAPABILITY CORRELATES WITH EXPOSURE. The most capable models are the most
+    vulnerable (Meta-SecAlign-70B 58.8%, gpt-4o-mini 57.7%, claude-3-7-sonnet
+    54.6% ... command-r-plus 12.6%). Weaker models are "safer" only because they
+    give up sooner.
+
+  - PROMPT-INJECTION DEFENSES DO NOT HELP. Meta-SecAlign-70B is explicitly
+    hardened against injection and tops the table. The spotlighting_with_delimiting
+    and repeat_user_prompt variants are indistinguishable from their base models.
+    Only tool_filter moves the number, by removing tools rather than protecting
+    them.
+
+--------------------------------------------------------------------------------
+5. BUGS I FOUND BY HAND-AUDITING MY OWN OUTPUT
+
+I sampled flagged trajectories and judged each by eye. Six bugs, all now pinned
+by regression tests:
+
+  1. Bare digits counted as evidence ("3rd most active user" linked via the
+     digit 3)
+  2. A write's implicit read registered as a "check", so two consecutive sends
+     formed a fake window
+  3. Earliest-source attribution instead of nearest-source, inflating window spans
+  4. Errored calls used as provenance sources (matching against error strings)
+  5. Window counts inflated per-argument (one read->send edge counted 3x)
+  6. Whole-string matching only, so SYNTHESISED arguments were invisible
+     ("Alice's hobby: Painting" never appears verbatim in the inbox that
+     supplied it)
+
+Precision went 83% -> 93% across three audits with fresh random seeds.
+
+--------------------------------------------------------------------------------
+6. KNOWN LIMITATIONS (I am not hiding these; attack them anyway)
+
+  - 45.4% is NOT directly comparable to the paper's 12%. They labelled a filtered
+    66-task subset; I measure all 97 across 29 models. Same base, different
+    denominator.
+  - Precision ~93% comes from three hand-audited samples of 14-18. Too small.
+    50+ is the right size.
+  - RECALL IS NOT QUANTIFIED. I found and fixed one blind class by auditing
+    unflagged trajectories. Others may remain.
+  - A WINDOW IS AN OPPORTUNITY, NOT AN EXPLOIT. Nothing demonstrates these
+    windows are actually reachable by an attacker.
+  - Attack-free runs only. Injection-active trajectories are excluded.
+  - Weakest evidence class: numeric matches inside prose bodies.
+
+--------------------------------------------------------------------------------
+7. NEXT STEP AS I SEE IT
+
+Build a state-mutation hook that fires INSIDE a detected window — the attack
+primitive AgentDojo does not provide — to convert "45% have windows" into
+"X% are exploitable". Then implement version-pinned capability tokens and show
+the exploitable rate go to zero for covered tools.
+
+The intended headline: prior work moved TOCTOU from 12% to 8% with heuristics;
+transactional enforcement eliminates the class for covered tools.
+
+--------------------------------------------------------------------------------
+8. WHAT I WANT FROM YOU
+
+  a. Is the core claim sound, or am I measuring an artefact? Specifically: is
+     "a window exists" too weak a notion to be interesting if I cannot show
+     exploitability?
+
+  b. Attack the 3.5x gap hypothesis. What else explains it? Is there a reading
+     where my number is simply wrong rather than more complete?
+
+  c. What is the strongest argument that this is already solved and I am
+     reinventing OCC with extra steps?
+
+  d. Where are my likely FALSE NEGATIVES? I know precision better than recall.
+     What classes of window would this method structurally miss?
+
+  e. Is the effect-typing + provenance split the right decomposition, or is
+     there a cleaner formulation (taint tracking? information flow? a type
+     system)?
+
+  f. For Phase 2: is version-pinned capability token the right primitive? What
+     breaks it? Consider an attacker who controls WHEN the mutation lands, an
+     agent that reaches tools out-of-band, and multi-agent concurrency.
+
+  g. What am I not asking that I should be?
+
+Note: everything here derives from public sources (AgentDojo, published arXiv
+papers). No proprietary or confidential material is included.

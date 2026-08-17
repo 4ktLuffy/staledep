@@ -7,8 +7,8 @@ confident numbers, so a regression would be invisible without them.
 
 import pytest
 
-from agenttx.effects import Risk, effects_for
-from agenttx.provenance import (
+from staledep.effects import Risk, effects_for
+from staledep.provenance import (
     ProvenanceLink,
     _distinctive_values,
     _numeric_is_distinctive,
@@ -16,7 +16,7 @@ from agenttx.provenance import (
     _tokens,
     trace_from_log,
 )
-from agenttx.toctou import classify_task, find_windows
+from staledep.toctou import classify_task, find_windows
 
 
 # --------------------------------------------------------------- state typing

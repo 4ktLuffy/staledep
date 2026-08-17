@@ -2,9 +2,9 @@
 using state typing + argument provenance."""
 from agentdojo.task_suite.load_suites import get_suite
 from agentdojo.functions_runtime import FunctionsRuntime
-from agenttx.provenance import trace
-from agenttx.toctou import classify_task
-from agenttx.effects import coverage
+from staledep.provenance import trace
+from staledep.toctou import classify_task
+from staledep.effects import coverage
 
 grand_t = grand_v = grand_h = 0
 state_only_total = 0

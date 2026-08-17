@@ -15,10 +15,10 @@ import json
 import os
 import random
 
-from agenttx.effects import Risk, effects_for
-from agenttx.provenance import trace_from_log
-from agenttx.toctou import classify_task
-from agenttx.trajectory import steps_from_messages, tool_names
+from staledep.effects import Risk, effects_for
+from staledep.provenance import trace_from_log
+from staledep.toctou import classify_task
+from staledep.trajectory import steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
 SUITES = ["banking", "slack", "travel", "workspace"]

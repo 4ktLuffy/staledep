@@ -1,9 +1,9 @@
 """Measure TOCTOU-vulnerable trajectory rate across AgentDojo's published runs.
 Comparable to arXiv:2508.17155's headline: 12% of trajectories contain a vulnerability."""
 import glob, json, os, collections
-from agenttx.trajectory import steps_from_messages, tool_names
-from agenttx.provenance import trace_from_log
-from agenttx.toctou import classify_task
+from staledep.trajectory import steps_from_messages, tool_names
+from staledep.provenance import trace_from_log
+from staledep.toctou import classify_task
 
 RUNS = "reference/agentdojo/runs"
 SUITES = ["banking", "slack", "travel", "workspace"]

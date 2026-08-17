@@ -132,7 +132,7 @@ def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]
 def classify_task(calls: list[str], suite: str, links=None) -> dict:
     """Label a single task. Mirrors the paper's per-task vulnerable/not decision.
 
-    `links` are optional provenance edges from agenttx.provenance.trace; without
+    `links` are optional provenance edges from staledep.provenance.trace; without
     them only state-typed windows are found, which under-counts.
     """
     windows = find_windows(calls, suite)

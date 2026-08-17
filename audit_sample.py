@@ -12,9 +12,9 @@ import json
 import os
 import random
 
-from agenttx.provenance import trace_from_log, _distinctive_values
-from agenttx.toctou import classify_task
-from agenttx.trajectory import steps_from_messages, tool_names
+from staledep.provenance import trace_from_log, _distinctive_values
+from staledep.toctou import classify_task
+from staledep.trajectory import steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
 SUITES = ["banking", "slack", "travel", "workspace"]
