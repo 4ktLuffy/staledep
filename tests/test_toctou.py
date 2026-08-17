@@ -202,9 +202,12 @@ def test_known_blind_spots_stay_documented():
 
 # ----------------------------------------------------- upstream oracle bug
 def test_vacuous_utility_checks_are_pinned():
-    """4 of AgentDojo's 16 banking utility() checks pass on the untouched
-    environment -- they are satisfied by pre-existing fixture state before the
-    agent acts. Any exploitability measurement using them is invalid.
+    """Four banking utility() checks pass on the untouched environment.
+
+    Only user_task_5 is a bug (already upstream issue #161); t8/t9/t10 are
+    intentional -- read-only or underspecified tasks where not acting is
+    correct. Pinned as a fact about the fixture, not as a defect claim: any
+    exploitability measurement over these tasks must use the action oracle.
 
     Skipped when agentdojo is absent (the library itself does not need it).
     """
@@ -223,8 +226,8 @@ def test_vacuous_utility_checks_are_pinned():
         except Exception:
             continue
     assert vacuous == {"user_task_5", "user_task_8", "user_task_9", "user_task_10"}, (
-        "the set of vacuous banking checks changed; re-verify any baseline that "
-        "used them"
+        "the set of banking checks passing on an untouched environment changed; "
+        "re-verify any baseline that used them"
     )
 
 
