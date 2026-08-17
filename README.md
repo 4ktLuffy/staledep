@@ -59,38 +59,62 @@ error-message text are rejected as evidence.
 
 Over 2,540 attack-free trajectories from 29 **model/configuration pairs** (not 29
 independent models — several are defense variants of the same base) shipped with
-[AgentDojo](https://github.com/ethz-spylab/agentdojo):
+[AgentDojo](https://github.com/ethz-spylab/agentdojo).
 
-| metric | value |
-|---|---|
-| Trajectories containing a candidate | 45.4% |
-| With a high-risk sink | 15.9% |
-| Candidates per tool call | 0.078 – 0.398 across configurations |
+### The waterfall
 
-### Conditioned on who can move the resource
+A broad read-then-act proxy loses most of its population once the semantic
+conditions a temporal dependency actually requires are enforced. Each filter is
+reported separately (`python report_waterfall.py`) so the derivation is visible
+rather than collapsed into one number:
 
-An unconditioned candidate rate is close to a restatement of what agency is. A
-candidate over state only the principal can write has no adversary in a position
-to move it, so every resource is annotated with its writer and rates are reported
-per threat model:
+| stage | count | rate |
+|---|---|---|
+| eligible trajectories | 2540 | 100.0% |
+| broad candidates (the original proxy) | 1154 | 45.4% |
+| after same-turn exclusion | 1153 | 45.4% |
+| after failed-sink exclusion | 1135 | 44.7% |
+| snapshot-only flows | 476 | 18.7% |
+| **temporal (dereference/control)** | **655** | **25.8%** |
+| + attacker-writable | 383 | 15.1% |
+| + high-risk committed sink | 92 | 3.6% |
 
-| suite | candidate | strict | moderate | multi-agent |
-|---|---|---|---|---|
-| banking | 47.8% | **11.3%** | 34.3% | 47.1% |
-| slack | 73.4% | 48.2% | 48.2% | 73.4% |
-| travel | 26.2% | **0.0%** | 26.2% | 26.2% |
-| workspace | 39.8% | 39.8% | 39.8% | 39.8% |
-| **overall** | 45.4% | **28.7%** | 37.9% | 45.3% |
-| high-risk sink | — | **10.6%** | 15.2% | 15.7% |
+**Same-turn exclusion removes only 1 trajectory.** The defect is real and
+reproducible — one assistant message containing `read_file` and `send_money`
+produced a link claiming the payment came from the file — but AgentDojo rarely
+batches, so its empirical impact is negligible. Failed-sink exclusion removes 18.
+**The real collapse is snapshot-versus-temporal**, not either of those.
 
-`strict` = arbitrary third parties only. `moderate` adds counterparties writing
-their own records. `multi_agent` adds concurrent agents, and is close to
-unconditioned because nearly everything is agent-writable.
+### Binding is classified per edge, not per tool
 
-Travel falls to zero under `strict`: every travel candidate is a provider
-changing their own prices or availability, which is a business race rather than a
-security one. That the filter annihilates an entire suite is the check that it
-is doing work.
+`send_money` simultaneously carries a snapshotted literal recipient, a
+current-balance predicate, and a live source-account identity. An earlier
+per-tool classification labelled the whole tool SNAPSHOT and erased the last two:
+it appears as snapshot in 97 windows and **dereference in 48**, and banking's
+high-risk rate was falsely 0.0% when it is 2.0%. The unit is
+`(observed resource → sink)`, classified snapshot / dereference-at-use /
+control-dependent / unknown. `unknown` is never folded into the exploitable set.
+
+### The 92-trajectory danger set, audited exhaustively
+
+Not sampled — every entry was reproduced, and the distinct patterns judged by
+hand. **The 92 are 14 distinct (suite, task) shapes across 27 models, not 92
+independent findings.** One shape accounts for 40 of them.
+
+| pattern | trajectories | binding | verdict |
+|---|---|---|---|
+| `list_files → delete_file(file_id)` | 40 | dereference | genuine — the list shifts, the wrong file is deleted |
+| `get_*_hotels → reserve_hotel(hotel)` | 28 | dereference | genuine, but a **business race**: the mutator is a hotel changing its own prices |
+| `search_files → share_file(file_id)` | 15 | dereference | genuine — wrong file shared externally |
+| `get_iban → send_money` | 2 | dereference | genuine — source account resolved live |
+| `get_balance → send_money` | 2 | control | genuine — funds gate the call without appearing in it |
+| `get_scheduled → send_money` | 2 | unknown | unresolved; flagged via a co-occurring window |
+| `restaurant reviews → reserve_hotel` | 1 | unknown | **false positive** — lexical coincidence |
+
+**28 of the 92 are travel price races.** Under the `strict` threat model travel
+is 0.0%; they appear here because the waterfall uses `moderate`. So the
+security-relevant residue is narrower than 3.6%: roughly **60 trajectories across
+~6 patterns, dominated by file-handle dereference in workspace**.
 
 ### Recall by dependency class
 
