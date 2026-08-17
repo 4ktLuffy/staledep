@@ -161,3 +161,40 @@ def test_effect_tables_declare_every_suite_tool():
     """A tool missing from the table is silently un-analysable, so fail loudly."""
     for suite in ("banking", "slack", "travel", "workspace"):
         assert effects_for(suite), f"{suite} has no effect table"
+
+
+# ------------------------------------------------------------ seeded recall
+def test_seeded_recall_is_pinned():
+    """Recall by dependency class. If a fix improves coverage, update these
+    numbers deliberately -- silent drift in either direction is the failure
+    mode this test exists to prevent."""
+    from staledep.provenance import trace_from_log
+    from staledep.seeded import CASES
+    from staledep.toctou import classify_task
+
+    caught = {
+        c.cls
+        for c in CASES
+        if classify_task([n for n, _, _ in c.steps], c.suite,
+                         links=trace_from_log(c.steps))["vulnerable"]
+    }
+    assert caught == {
+        "literal-copy", "shared-resource", "synthesised-text",
+        "control-dependence", "aliasing", "phantom",
+    }
+
+
+def test_known_blind_spots_stay_documented():
+    """These classes are not detected. The test asserts the gap so it cannot be
+    quietly forgotten when the README is next edited."""
+    from staledep.provenance import trace_from_log
+    from staledep.seeded import CASES
+    from staledep.toctou import classify_task
+
+    blind = {"negative-evidence", "aggregate", "derived-value",
+             "laundering-hop", "implicit-read-in-write", "cross-system"}
+    for c in CASES:
+        if c.cls in blind:
+            r = classify_task([n for n, _, _ in c.steps], c.suite,
+                              links=trace_from_log(c.steps))
+            assert not r["vulnerable"], f"{c.cls} now detected -- update the table"
