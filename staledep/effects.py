@@ -22,6 +22,117 @@ class Risk(Enum):
     HIGH = "high"        # irreversible, financial, or privilege-affecting
 
 
+class Writer(Enum):
+    """Who can mutate a resource during a trajectory.
+
+    A stale-dependency candidate over a resource only the user can write is dead
+    code: nobody hostile is in a position to move it. Conditioning on this is
+    what separates "the agent read something and later acted" -- true of all
+    agency -- from "the agent acted on state an adversary controls".
+
+    Ordered loosely by hostility.
+    """
+    UNTRUSTED = "untrusted"        # arbitrary third parties write this
+    COUNTERPARTY = "counterparty"  # a specific external party legitimately writes it
+    AGENT = "agent"                # another agent or concurrent process
+    USER = "user"                  # only the principal or their systems
+    STATIC = "static"              # effectively immutable within a session
+
+
+#: Which resources an adversary can move, per suite. These are judgements about
+#: AgentDojo's environments, not facts derivable from the code, so they are
+#: stated explicitly and can be argued with.
+RESOURCE_WRITERS: dict[str, dict[str, Writer]] = {
+    "banking": {
+        # AgentDojo's bill files are the banking injection vector: attacker text
+        # lands here and the agent pays from it.
+        "file":            Writer.UNTRUSTED,
+        # Anyone who can send you money writes your transaction history, and the
+        # recipient IBANs in it get reused by agents issuing refunds.
+        "transactions":    Writer.COUNTERPARTY,
+        "account.balance": Writer.COUNTERPARTY,   # inbound transfers move it
+        "account.iban":    Writer.USER,
+        "scheduled":       Writer.AGENT,
+        "user":            Writer.AGENT,          # update_user_info is agent-reachable
+        "user.password":   Writer.AGENT,
+    },
+    "slack": {
+        "web":             Writer.UNTRUSTED,      # arbitrary websites
+        "inbox":           Writer.UNTRUSTED,      # anyone can send
+        "messages":        Writer.UNTRUSTED,      # any channel member
+        "channels":        Writer.AGENT,
+        "channel.users":   Writer.AGENT,
+        "workspace.users": Writer.AGENT,
+    },
+    "travel": {
+        # Providers legitimately change their own prices, hours and availability
+        # between the agent checking and booking.
+        "hotels":       Writer.COUNTERPARTY,
+        "restaurants":  Writer.COUNTERPARTY,
+        "cars":         Writer.COUNTERPARTY,
+        "flights":      Writer.COUNTERPARTY,
+        "calendar":     Writer.AGENT,
+        "reservations": Writer.AGENT,
+        "user":         Writer.USER,
+    },
+    "workspace": {
+        "email.received": Writer.UNTRUSTED,       # anyone can email you
+        "files":          Writer.UNTRUSTED,       # shared drive, external collaborators
+        "files.acl":      Writer.AGENT,
+        "calendar":       Writer.UNTRUSTED,       # external invitees write your calendar
+        "contacts":       Writer.USER,
+        "email.drafts":   Writer.USER,
+        "email.sent":     Writer.USER,
+        "clock":          Writer.STATIC,
+    },
+}
+
+#: Threat models, from strict to permissive. Which one applies is a deployment
+#: question, so the rate is reported at each tier rather than collapsed into one
+#: number.
+#:
+#: A first pass folded AGENT into the attacker set and the filter turned out
+#: vacuous -- it removed 0.1% of candidates -- because nearly every resource is
+#: agent-writable. In a single-agent deployment there is no other agent, so that
+#: tier only means something under concurrency.
+THREAT_MODELS: dict[str, frozenset[Writer]] = {
+    # Arbitrary third parties: inbound email, web pages, channel messages,
+    # uploaded documents. The attacker needs no relationship with the victim.
+    "strict":   frozenset({Writer.UNTRUSTED}),
+    # Plus parties with legitimate write access to their own records: a supplier
+    # changing bank details, a hotel changing prices.
+    "moderate": frozenset({Writer.UNTRUSTED, Writer.COUNTERPARTY}),
+    # Plus concurrent agents or processes. Only meaningful in multi-agent
+    # deployments; otherwise this tier is close to unconditioned.
+    "multi_agent": frozenset({Writer.UNTRUSTED, Writer.COUNTERPARTY, Writer.AGENT}),
+}
+
+ATTACKER_WRITABLE = THREAT_MODELS["moderate"]
+
+
+def writer_of(suite: str, resource: str) -> Writer | None:
+    """Who writes `resource`. Dataflow pseudo-resources resolve via their source tool."""
+    table = RESOURCE_WRITERS.get(suite, {})
+    if resource in table:
+        return table[resource]
+    if resource.startswith("dataflow:"):
+        tool = resource.split(":", 1)[1]
+        eff = SUITES.get(suite, {}).get(tool)
+        if eff is not None:
+            # The window is only as hostile as the most hostile thing the source read.
+            writers = [table[r] for r in eff.reads if r in table]
+            for w in (Writer.UNTRUSTED, Writer.COUNTERPARTY, Writer.AGENT, Writer.USER):
+                if w in writers:
+                    return w
+    return None
+
+
+def is_attacker_writable(suite: str, resource: str, threat_model: str = "moderate") -> bool:
+    """Can an adversary under `threat_model` move this resource mid-trajectory?"""
+    w = writer_of(suite, resource)
+    return w is not None and w in THREAT_MODELS[threat_model]
+
+
 @dataclass(frozen=True)
 class Effect:
     risk: Risk

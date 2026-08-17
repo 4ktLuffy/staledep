@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .effects import Effect, Risk, effects_for
+from .effects import Effect, Risk, effects_for, is_attacker_writable
 
 
 @dataclass(frozen=True)
@@ -129,7 +129,7 @@ def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]
     return windows
 
 
-def classify_task(calls: list[str], suite: str, links=None) -> dict:
+def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate") -> dict:
     """Label a single task. Mirrors the paper's per-task vulnerable/not decision.
 
     `links` are optional provenance edges from staledep.provenance.trace; without
@@ -145,6 +145,11 @@ def classify_task(calls: list[str], suite: str, links=None) -> dict:
                 seen.add((w.check_idx, w.use_idx, w.resource))
 
     high = [w for w in windows if w.use_risk is Risk.HIGH]
+    # Conditioning on mutability is what makes this a threat statement rather
+    # than a restatement of what agency is. A candidate over state only the user
+    # can write has no adversary in a position to move it.
+    exposed = [w for w in windows if is_attacker_writable(suite, w.resource, threat_model)]
+    exposed_high = [w for w in exposed if w.use_risk is Risk.HIGH]
     return {
         "n_calls": len(calls),
         "vulnerable": bool(windows),
@@ -152,6 +157,10 @@ def classify_task(calls: list[str], suite: str, links=None) -> dict:
         "n_state_windows": n_state,
         "n_dataflow_windows": len(windows) - n_state,
         "n_high_risk_windows": len(high),
+        # attacker-writable subset
+        "exposed": bool(exposed),
+        "n_exposed_windows": len(exposed),
+        "n_exposed_high_risk": len(exposed_high),
         "max_span": max((w.span for w in windows), default=0),
         "resources": sorted({w.resource for w in windows}),
         "windows": windows,
