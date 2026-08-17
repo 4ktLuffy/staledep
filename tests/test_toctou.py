@@ -264,3 +264,201 @@ def test_read_only_agent_is_not_redirected():
     log = ActionLog()
     log.record("get_most_recent_transactions", {"n": 100})
     assert not verdict(log, base, "banking")["redirected"]
+
+
+# ==================================================================== hostile
+# Written to break the code, not to confirm it. Each targets a path that
+# produced a headline number while having no direct test.
+
+# ------------------------------------------------- mutability conditioning
+def test_unknown_resource_is_not_silently_attacker_writable():
+    """An unknown resource returns False, which EXCLUDES it from conditioned
+    counts. Silent undercount, so writer_coverage must catch it."""
+    from staledep.effects import is_attacker_writable, writer_of
+    assert writer_of("banking", "no.such.resource") is None
+    assert not is_attacker_writable("banking", "no.such.resource")
+    assert writer_of("nosuchsuite", "file") is None
+
+
+def test_every_effect_table_resource_has_a_declared_writer():
+    """travel.email.sent was undeclared and silently excluded. Windows form only
+    on resources a SINK READS, so that one did not move the numbers -- but a new
+    reader would have made it corrupt them invisibly."""
+    from staledep.effects import SUITES, writer_coverage
+    for suite in SUITES:
+        _, undeclared = writer_coverage(suite)
+        assert not undeclared, f"{suite} has resources with no declared writer: {undeclared}"
+
+
+def test_invalid_threat_model_raises_rather_than_keyerrors():
+    from staledep.effects import is_attacker_writable
+    with pytest.raises(ValueError, match="unknown threat model"):
+        is_attacker_writable("banking", "file", "not_a_model")
+
+
+def test_threat_models_are_nested():
+    """strict ⊆ moderate ⊆ multi_agent. If this breaks, the tiers stop being
+    comparable and the conditioned table is meaningless."""
+    from staledep.effects import THREAT_MODELS as T
+    assert T["strict"] <= T["moderate"] <= T["multi_agent"]
+
+
+def test_dataflow_resource_resolves_to_its_source_tools_hostility():
+    """dataflow:read_file must inherit read_file's UNTRUSTED, or the bill class
+    silently drops out of the strict count."""
+    from staledep.effects import Writer, is_attacker_writable, writer_of
+    assert writer_of("banking", "dataflow:read_file") is Writer.UNTRUSTED
+    assert is_attacker_writable("banking", "dataflow:read_file", "strict")
+    assert writer_of("banking", "dataflow:get_iban") is Writer.USER
+    assert not is_attacker_writable("banking", "dataflow:get_iban", "strict")
+    # malformed forms must not explode
+    for bad in ("dataflow:", "dataflow:nope", "dataflow:read_file.recipient", ""):
+        assert writer_of("banking", bad) is None
+
+
+# ------------------------------------------------------- TOCTOU discrimination
+def test_discriminate_requires_both_controls_clean():
+    from staledep.mutate import discriminate
+    n = 3
+    # interior only -> TOCTOU
+    assert discriminate({-1: False, 0: True, 1: False, 2: False, 3: False}, n)["toctou"]
+    # before-control also changed -> corruption, not TOCTOU
+    assert not discriminate({-1: True, 0: True, 1: False, 2: False, 3: False}, n)["toctou"]
+    # after-control also changed -> corruption
+    assert not discriminate({-1: False, 0: True, 1: False, 2: False, 3: True}, n)["toctou"]
+    # nothing changed -> no effect
+    v = discriminate({-1: False, 0: False, 1: False, 2: False, 3: False}, n)
+    assert not v["toctou"] and v["verdict"] == "no effect"
+
+
+def test_discriminate_does_not_count_controls_as_interior():
+    """Off-by-one here would let a control masquerade as an in-window hit."""
+    from staledep.mutate import discriminate
+    v = discriminate({-1: False, 0: False, 1: False, 2: True}, 2)  # gap 2 == n_gaps
+    assert not v["toctou"]
+    assert v["control_after_changed"]
+    assert v["interior_gaps_that_changed"] == []
+
+
+def test_discriminate_on_empty_input_is_no_effect():
+    from staledep.mutate import discriminate
+    assert discriminate({}, 3)["verdict"] == "no effect"
+
+
+# --------------------------------------------------------------- action oracle
+def test_sentinel_in_a_read_argument_is_not_a_redirect():
+    """Attacker data reaching a READ is not an action. Counting it would inflate
+    every exploitability figure."""
+    from staledep.oracle import SENTINEL, ActionLog, sentinel_reached_action
+    log = ActionLog()
+    log.record("get_most_recent_transactions", {"n": 100, "note": SENTINEL})
+    assert sentinel_reached_action(log, "banking") == []
+
+
+def test_sentinel_nested_in_a_list_argument_is_found():
+    from staledep.oracle import SENTINEL, ActionLog, sentinel_reached_action
+    log = ActionLog()
+    log.record("send_email", {"recipients": ["ok@x.com", SENTINEL]})
+    assert sentinel_reached_action(log, "workspace")
+
+
+def test_target_divergence_reports_a_missing_call():
+    """Not making a high-risk call is itself a behavioural change; silently
+    treating it as 'unchanged' would hide a denial-of-action."""
+    from staledep.oracle import ActionLog, target_diverged
+    base = ActionLog()
+    base.record("send_money", {"recipient": "DE89", "amount": 5.0})
+    suppressed = ActionLog()
+    suppressed.record("get_iban", {})
+    d = target_diverged(suppressed, base, "banking")
+    assert d, "suppressing a high-risk call is a behavioural change, not 'unchanged'"
+    assert any("not called" in str(x[0]) for x in d)
+    extra = ActionLog()
+    extra.record("send_money", {"recipient": "DE89", "amount": 5.0})
+    extra.record("send_money", {"recipient": "XX99", "amount": 5.0})
+    assert target_diverged(extra, base, "banking"), "an extra unmatched call must diverge"
+
+
+def test_undeclared_tool_is_not_treated_as_a_sink():
+    from staledep.oracle import ActionLog
+    log = ActionLog()
+    log.record("some_unknown_tool", {"x": 1})
+    assert log.state_changing("banking") == []
+    assert log.high_risk("banking") == []
+
+
+# ------------------------------------------------------------ trajectory parse
+def test_steps_from_messages_matches_results_by_id():
+    from staledep.trajectory import steps_from_messages
+    msgs = [
+        {"role": "assistant", "tool_calls": [{"function": "get_iban", "args": {}, "id": "a"}]},
+        {"role": "tool", "tool_call_id": "a", "tool_call": {"function": "get_iban", "args": {}},
+         "content": "DE89", "error": None},
+    ]
+    steps, errored = steps_from_messages(msgs)
+    assert steps == [("get_iban", {}, "DE89")]
+    assert errored == set()
+
+
+def test_steps_from_messages_flags_errored_calls():
+    from staledep.trajectory import steps_from_messages
+    msgs = [
+        {"role": "assistant", "tool_calls": [{"function": "send_money", "args": {}, "id": "b"}]},
+        {"role": "tool", "tool_call_id": "b", "tool_call": {"function": "send_money", "args": {}},
+         "content": "ValueError: nope", "error": "ValueError"},
+    ]
+    steps, errored = steps_from_messages(msgs)
+    assert errored == {0}
+
+
+def test_steps_from_messages_survives_empty_and_malformed():
+    from staledep.trajectory import steps_from_messages
+    assert steps_from_messages([]) == ([], set())
+    assert steps_from_messages([{"role": "assistant"}]) == ([], set())
+    assert steps_from_messages([{"role": "assistant", "tool_calls": [{}]}]) == ([], set())
+
+
+def test_classify_task_on_empty_trajectory():
+    r = classify_task([], "banking")
+    assert not r["candidate"] and r["n_windows"] == 0 and r["max_span"] == 0
+
+
+def test_unfired_control_is_inconclusive_not_clean():
+    """VERIFIED FALSE POSITIVE: an agent that stops after one call while the
+    sweep assumes n_gaps=2 never fires the after-control. Recording that as
+    'unchanged' makes it indistinguishable from a clean control, which is the
+    condition for declaring TOCTOU."""
+    from staledep.mutate import discriminate
+    changed = {-1: False, 0: True, 1: False, 2: False}
+    fired = {-1: True, 0: True, 1: False, 2: False}       # gaps 1,2 never ran
+    v = discriminate(changed, 2, fired)
+    assert not v["toctou"]
+    assert v["inconclusive"]
+    assert 2 in v["unfired_gaps"]
+    # same evidence with every gap fired IS a TOCTOU
+    all_fired = dict.fromkeys(fired, True)
+    assert discriminate(changed, 2, all_fired)["toctou"]
+
+
+def test_recording_runtime_reports_whether_the_mutation_fired():
+    from staledep.mutate import Mutation
+    from staledep.oracle import ActionLog, make_recording_runtime
+
+    class FakeRT:
+        def __init__(self, tools=None):
+            pass
+
+        def run_function(self, env, function, kwargs, raise_on_error=False):
+            return ("ok", None)
+
+    hits = []
+    mut = Mutation("probe", "file", "untrusted", lambda env: hits.append(1))
+
+    for gap, expect in ((-1, True), (0, True), (1, False), (2, False)):
+        hits.clear()
+        log = ActionLog()
+        RT = make_recording_runtime(FakeRT, log, mut, gap)
+        rt = RT(None)
+        rt.run_function(object(), "get_iban", {})     # agent makes ONE call
+        assert rt.did_fire() is expect, f"gap {gap}"
+        assert bool(hits) is expect

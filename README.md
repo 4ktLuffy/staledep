@@ -335,3 +335,35 @@ second.
 Baseline caution: six banking tasks report `utility=True` while the agent makes
 a single read and never acts. Any "N/16 passed" figure on this suite should be
 read alongside what the agent actually emitted.
+
+## Bugs found by attacking this code, not by using it
+
+Each was found by deliberately trying to break the instrument, and each is now
+pinned by a test.
+
+**An unfired control manufactured TOCTOU verdicts.** The gap sweep fires a
+mutation after call *n*. If the agent makes fewer calls than the sweep assumed —
+which both 16GB models do, stopping after one call while ground truth is two —
+the after-last control **never fires**, and was recorded as "unchanged". An
+unfired control is then indistinguishable from a clean one, which is exactly the
+condition for declaring TOCTOU. Verified reproducible. `discriminate()` now
+takes which gaps actually fired and returns *inconclusive* rather than a verdict.
+
+**Denial-of-action was invisible.** `target_diverged` only walked the mutated
+trajectory, so it caught *extra* calls but never *absent* ones. An attack that
+stops the agent paying — rather than redirecting the payment — read as
+"unchanged". Worse, the test I wrote asserted the buggy behaviour rather than
+the documented intent.
+
+**A resource with no declared writer was silently excluded.** `travel.email.sent`
+resolved to `None` → not-attacker-writable → dropped from every conditioned
+count. It happened not to move the numbers (no travel tool *reads* it, so no
+window forms there) but the failure mode is silent undercounting. There is now a
+test asserting every resource in every effect table has a declared writer.
+
+**An invalid threat model raised a bare `KeyError`** on a public function.
+
+**Dead code from my own refactor.** Rewriting the sweep to use the action oracle
+silently dropped the TOCTOU-vs-corruption discrimination — the controls were
+still computed and never applied. `sweep_gaps`, `is_toctou`, `Outcome` and
+`evaluate` had no callers at all.

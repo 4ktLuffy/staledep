@@ -157,20 +157,3 @@ CASES: list[SeededCase] = [
         ],
     ),
 ]
-
-
-def evaluate(classify, trace) -> list[dict]:
-    """Run the detector over every seeded case. Returns per-case results."""
-    out = []
-    for case in CASES:
-        links = trace(case.steps)
-        r = classify([n for n, _, _ in case.steps], case.suite, links=links)
-        out.append({
-            "cls": case.cls,
-            "suite": case.suite,
-            "caught": bool(r["candidate"]),
-            "exposed": bool(r.get("exposed")),
-            "n_windows": r["n_windows"],
-            "why": case.why,
-        })
-    return out

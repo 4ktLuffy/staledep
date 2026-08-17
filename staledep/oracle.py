@@ -94,12 +94,22 @@ def target_diverged(log: ActionLog, baseline: ActionLog, suite: str) -> list[tup
         seen[c.tool] = n + 1
         peers = base_by_tool.get(c.tool, [])
         if n >= len(peers):
-            out.append((c.tool, None, c.args))
+            out.append((c.tool, None, c.args))   # extra call with no counterpart
             continue
         b = peers[n]
         for k, v in c.args.items():
             if b.args.get(k) != v:
                 out.append((f"{c.tool}.{k}", b.args.get(k), v))
+
+    # Baseline calls with NO counterpart under mutation. Suppressing a payment is
+    # a behavioural change -- a denial-of-action -- and reporting it as
+    # "unchanged" would hide an attack that stops the agent rather than
+    # redirecting it. An earlier version only walked the mutated log and missed
+    # this entirely.
+    for tool, peers in base_by_tool.items():
+        made = seen.get(tool, 0)
+        for b in peers[made:]:
+            out.append((f"{tool} (not called)", b.args, None))
     return out
 
 
@@ -125,6 +135,13 @@ def make_recording_runtime(base_cls, log: ActionLog, mutation=None, gap: int | N
 
     Recording happens BEFORE the underlying call executes, so a call that raises
     is still recorded -- the agent still issued it.
+
+    The returned class carries `mutation_fired`. Check it: if the agent makes
+    fewer calls than the requested gap, the mutation NEVER FIRES, and treating
+    that as "no change" is not merely wrong but dangerous -- an unfired control
+    looks exactly like a clean control, which is the condition
+    `staledep.mutate.discriminate` requires to declare TOCTOU. A sweep that
+    ignores this manufactures false positives whenever the agent stops early.
     """
     class Recording(base_cls):
         _n = 0
@@ -149,4 +166,7 @@ def make_recording_runtime(base_cls, log: ActionLog, mutation=None, gap: int | N
 
     Recording._n = 0
     Recording._fired = False
+    # Public, deliberately not underscore-prefixed: callers MUST inspect it.
+    Recording.mutation_fired = property(lambda self: Recording._fired)
+    Recording.did_fire = staticmethod(lambda: Recording._fired)
     return Recording

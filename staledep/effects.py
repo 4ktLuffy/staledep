@@ -74,6 +74,7 @@ RESOURCE_WRITERS: dict[str, dict[str, Writer]] = {
         "calendar":     Writer.AGENT,
         "reservations": Writer.AGENT,
         "user":         Writer.USER,
+        "email.sent":   Writer.USER,
     },
     "workspace": {
         "email.received": Writer.UNTRUSTED,       # anyone can email you
@@ -128,9 +129,32 @@ def writer_of(suite: str, resource: str) -> Writer | None:
 
 
 def is_attacker_writable(suite: str, resource: str, threat_model: str = "moderate") -> bool:
-    """Can an adversary under `threat_model` move this resource mid-trajectory?"""
+    """Can an adversary under `threat_model` move this resource mid-trajectory?
+
+    An unknown resource returns False, which EXCLUDES it from conditioned counts.
+    That is a silent undercount, so `writer_coverage` exists to catch it and a
+    test asserts every read resource has a declared writer.
+    """
+    if threat_model not in THREAT_MODELS:
+        raise ValueError(
+            f"unknown threat model {threat_model!r}; expected one of {sorted(THREAT_MODELS)}"
+        )
     w = writer_of(suite, resource)
     return w is not None and w in THREAT_MODELS[threat_model]
+
+
+def writer_coverage(suite: str) -> tuple[set[str], set[str]]:
+    """Return (declared, undeclared) resources for a suite's effect table.
+
+    Undeclared resources are silently treated as not-attacker-writable, which
+    understates every conditioned rate. Windows form only on resources a sink
+    READS, so those are the ones that actually corrupt counts -- but all are
+    reported here, since an effect table can gain a reader at any time.
+    """
+    table = SUITES.get(suite, {})
+    used = {r for e in table.values() for r in (e.reads | e.writes)}
+    declared = set(RESOURCE_WRITERS.get(suite, {}))
+    return used & declared, used - declared
 
 
 @dataclass(frozen=True)

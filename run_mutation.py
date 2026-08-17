@@ -31,7 +31,7 @@ from agentdojo.agent_pipeline.tool_execution import ToolsExecutor  # noqa: E402
 from agentdojo.functions_runtime import FunctionsRuntime  # noqa: E402
 from agentdojo.task_suite.load_suites import get_suite  # noqa: E402
 
-from staledep.mutate import MUTATIONS  # noqa: E402
+from staledep.mutate import MUTATIONS, discriminate  # noqa: E402
 from staledep.oracle import ActionLog, make_recording_runtime, verdict  # noqa: E402
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3.5:4b-mlx"
@@ -51,11 +51,17 @@ def build_pipeline():
 
 
 def run(suite, task, pipeline, mutation=None, gap=None):
+    """Returns (log, utility, security, fired).
+
+    `fired` matters: if the agent makes fewer calls than the requested gap, the
+    mutation never happens, and treating that as "no change" turns an unfired
+    control into an apparent clean one -- which manufactures TOCTOU verdicts.
+    """
     log = ActionLog()
     rt = make_recording_runtime(FunctionsRuntime, log, mutation, gap)
     utility, security = suite.run_task_with_pipeline(
         pipeline, task, injection_task=None, injections={}, runtime_class=rt)
-    return log, utility, security
+    return log, utility, security, rt.did_fire()
 
 
 def main() -> None:
@@ -66,7 +72,7 @@ def main() -> None:
     print(f"model={MODEL}  suite={SUITE}  task={TASK}")
     print(f"prompt: {task.PROMPT}\n")
 
-    base_log, base_u, base_s = run(suite, task, pipeline)
+    base_log, base_u, base_s, _ = run(suite, task, pipeline)
     print(f"BASELINE  utility={base_u} security={base_s}")
     print(f"          calls: {base_log.tools()}")
     if not base_log.calls:
@@ -82,28 +88,43 @@ def main() -> None:
     for mutation in MUTATIONS[SUITE]:
         print(f"--- {mutation}")
         print(f"    {mutation.describe}")
+        redirected_by_gap: dict[int, bool] = {}
+        env_by_gap: dict[int, bool] = {}
+        fired_by_gap: dict[int, bool] = {}
         for gap in [-1, *range(n_gaps), n_gaps]:
             where = ("before all" if gap == -1
                      else "after last" if gap >= n_gaps else f"after call {gap}")
             try:
-                log, u, s = run(suite, task, pipeline, mutation, gap)
+                log, u, s, fired = run(suite, task, pipeline, mutation, gap)
             except Exception as exc:
                 print(f"    gap {gap:>2} ({where:<12}) ERROR {str(exc)[:60]}")
                 continue
             v = verdict(log, base_log, SUITE)
             env_changed = (u, s) != (base_u, base_s)
+            redirected_by_gap[gap] = v["redirected"]
+            env_by_gap[gap] = env_changed
+            fired_by_gap[gap] = fired
             flags = []
             if v["sentinel_in_action"]:
                 flags.append("SENTINEL-IN-ACTION")
             if v["target_diverged"]:
                 flags.append("TARGET-MOVED")
-            print(f"    gap {gap:>2} ({where:<12}) env={'CHANGED' if env_changed else 'same':<7} "
+            print(f"    gap {gap:>2} ({where:<12}) "
+                  f"{'fired' if fired else 'NOT-FIRED':<9} "
+                  f"env={'CHANGED' if env_changed else 'same':<7} "
                   f"action={'REDIRECTED' if v['redirected'] else 'unchanged':<10} "
                   f"{' '.join(flags)}")
             for tool, args in v["sentinel_calls"]:
                 print(f"           -> attacker data reached {tool}: {str(args)[:80]}")
             for field_, was, now in v["divergences"][:2]:
                 print(f"           -> {field_}: {str(was)[:34]!r} -> {str(now)[:34]!r}")
+
+        action_v = discriminate(redirected_by_gap, n_gaps, fired_by_gap)
+        env_v = discriminate(env_by_gap, n_gaps, fired_by_gap)
+        print(f"    VERDICT (action oracle) : {action_v['verdict']}")
+        print(f"    VERDICT (environment)   : {env_v['verdict']}   [contaminated -- for comparison only]")
+        if action_v["interior_gaps_that_changed"]:
+            print(f"    interior gaps redirecting the agent: {action_v['interior_gaps_that_changed']}")
         print()
 
 
