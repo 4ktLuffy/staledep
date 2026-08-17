@@ -43,7 +43,7 @@ for model in sorted(os.listdir(RUNS)):
                 continue
             links = trace_from_log(steps, errored)
             r = classify_task(tool_names(steps), suite, links=links)
-            if not r["vulnerable"]:
+            if not r["candidate"]:
                 clean.append((model, suite, d.get("user_task_id"), steps, errored, links))
 
 print("unflagged trajectories with >=2 calls: %d; sampling %d (seed=%d)\n"
@@ -60,9 +60,9 @@ for n, (model, suite, tid, steps, errored, links) in enumerate(
         err = " [ERRORED]" if i in errored else ""
         print("   %d. %-34s [%s]%s%s" % (i, name, risk, flag, err))
         if args:
-            print("        args: %s" % json.dumps(args, default=str)[:150])
-        print("        out : %s" % str(out).replace("\n", " ")[:130])
+            print(f"        args: {json.dumps(args, default=str)[:150]}")
+        print("        out : {}".format(str(out).replace("\n", " ")[:130]))
     if links:
-        print("   provenance links found but no window: %s" % [str(l) for l in links][:2])
+        print(f"   provenance links found but no window: {[str(lk) for lk in links][:2]}")
     print("   MISSED WINDOW? ______")
     print()

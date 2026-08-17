@@ -1,10 +1,11 @@
 """Apply the TOCTOU criterion to all 97 AgentDojo ground-truth trajectories,
 using state typing + argument provenance."""
-from agentdojo.task_suite.load_suites import get_suite
 from agentdojo.functions_runtime import FunctionsRuntime
+from agentdojo.task_suite.load_suites import get_suite
+
+from staledep.effects import coverage
 from staledep.provenance import trace
 from staledep.toctou import classify_task
-from staledep.effects import coverage
 
 grand_t = grand_v = grand_h = 0
 state_only_total = 0
@@ -12,10 +13,10 @@ for suite_name in ["banking", "slack", "travel", "workspace"]:
     suite = get_suite("v1", suite_name)
     _, undeclared = coverage(suite_name, [t.name for t in suite.tools])
     if undeclared:
-        print("!! %s UNDECLARED: %s" % (suite_name, undeclared))
+        print(f"!! {suite_name} UNDECLARED: {undeclared}")
 
     n = v = h = so = 0
-    for tid, task in sorted(suite.user_tasks.items()):
+    for _tid, task in sorted(suite.user_tasks.items()):
         env = suite.load_and_inject_default_environment({})
         try:
             gt = task.ground_truth(env)
@@ -30,10 +31,13 @@ for suite_name in ["banking", "slack", "travel", "workspace"]:
             links = []
         r = classify_task(names, suite_name, links=links)
         n += 1
-        v += r["vulnerable"]
+        v += r["candidate"]
         h += bool(r["n_high_risk_windows"])
         so += bool(r["n_state_windows"])
-    grand_t += n; grand_v += v; grand_h += h; state_only_total += so
+    grand_t += n
+    grand_v += v
+    grand_h += h
+    state_only_total += so
     print("%-10s %2d/%2d vulnerable  (%2d state-only)  %2d with HIGH-risk window" % (
         suite_name, v, n, so, h))
 

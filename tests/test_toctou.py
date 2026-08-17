@@ -176,7 +176,7 @@ def test_seeded_recall_is_pinned():
         c.cls
         for c in CASES
         if classify_task([n for n, _, _ in c.steps], c.suite,
-                         links=trace_from_log(c.steps))["vulnerable"]
+                         links=trace_from_log(c.steps))["candidate"]
     }
     assert caught == {
         "literal-copy", "shared-resource", "synthesised-text",
@@ -197,4 +197,4 @@ def test_known_blind_spots_stay_documented():
         if c.cls in blind:
             r = classify_task([n for n, _, _ in c.steps], c.suite,
                               links=trace_from_log(c.steps))
-            assert not r["vulnerable"], f"{c.cls} now detected -- update the table"
+            assert not r["candidate"], f"{c.cls} now detected -- update the table"

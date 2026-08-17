@@ -1,15 +1,18 @@
 """Baseline utility probe: can a local model complete AgentDojo banking tasks?
 If it can't, TOCTOU enforcement is unmeasurable. This number gates the project."""
-import os, sys, time
+import os
+import sys
+import time
+
 os.environ["OPENAI_COMPATIBLE_BASE_URL"] = "http://localhost:11434/v1"
 os.environ["OPENAI_COMPATIBLE_API_KEY"] = "ollama"
 
-from agentdojo.task_suite.load_suites import get_suite
+import openai
 from agentdojo.agent_pipeline.agent_pipeline import AgentPipeline
+from agentdojo.agent_pipeline.basic_elements import InitQuery, SystemMessage
 from agentdojo.agent_pipeline.llms.local_llm import LocalLLM
 from agentdojo.agent_pipeline.tool_execution import ToolsExecutor
-from agentdojo.agent_pipeline.basic_elements import InitQuery, SystemMessage
-import openai
+from agentdojo.task_suite.load_suites import get_suite
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3.5:4b-mlx"
 N     = int(sys.argv[2]) if len(sys.argv) > 2 else 3

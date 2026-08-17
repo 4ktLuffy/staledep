@@ -12,7 +12,7 @@ import json
 import os
 import random
 
-from staledep.provenance import trace_from_log, _distinctive_values
+from staledep.provenance import _distinctive_values, trace_from_log
 from staledep.toctou import classify_task
 from staledep.trajectory import steps_from_messages, tool_names
 
@@ -40,7 +40,7 @@ for model in sorted(os.listdir(RUNS)):
                 continue
             links = trace_from_log(steps, errored)
             r = classify_task(tool_names(steps), suite, links=links)
-            if r["vulnerable"]:
+            if r["candidate"]:
                 flagged.append((model, suite, d.get("user_task_id"), steps, links, r))
 
 print("flagged trajectories: %d; sampling %d (seed=%d)\n" % (len(flagged), SAMPLE, SEED))
@@ -58,18 +58,18 @@ def context(haystack: str, needle: str, pad: int = 34) -> str:
 for n, (model, suite, tid, steps, links, r) in enumerate(sample, 1):
     w = max(r["windows"], key=lambda x: (x.use_risk.value == "high", x.span))
     print("[%2d] %s | %s/%s" % (n, model, suite, tid))
-    print("     calls: %s" % " -> ".join(tool_names(steps)))
-    print("     window: %s" % w)
+    print("     calls: {}".format(" -> ".join(tool_names(steps))))
+    print(f"     window: {w}")
     if w.resource.startswith("dataflow:"):
         for lk in links:
             if lk.source_idx == w.check_idx and lk.sink_idx == w.use_idx:
                 src_out = str(steps[lk.source_idx][2])
                 for val in sorted(_distinctive_values(steps[lk.sink_idx][1].get(lk.arg_name)),
                                   key=len, reverse=True)[:1]:
-                    print("     arg %s=%r" % (lk.arg_name, lk.value[:60]))
-                    print("     source output: %s" % context(src_out, val)[:150])
+                    print(f"     arg {lk.arg_name}={lk.value[:60]!r}")
+                    print(f"     source output: {context(src_out, val)[:150]}")
                 break
     else:
-        print("     shared resource: %s (state dependency)" % w.resource)
+        print(f"     shared resource: {w.resource} (state dependency)")
     print("     VERDICT: ______")
     print()

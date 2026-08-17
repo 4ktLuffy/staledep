@@ -39,7 +39,7 @@ def main() -> None:
     print("-" * 78)
     flagged = mechanism = 0
     for case, r in rows:
-        is_flagged = bool(r["vulnerable"])
+        is_flagged = bool(r["candidate"])
         is_real = is_flagged and case.cls not in INCIDENTAL
         flagged += is_flagged
         mechanism += is_real
@@ -63,7 +63,7 @@ def main() -> None:
     print()
     print("Classes with no coverage at all:")
     for case, r in rows:
-        if not r["vulnerable"]:
+        if not r["candidate"]:
             print("  %-22s %s" % (case.cls, case.why))
 
 

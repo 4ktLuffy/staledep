@@ -1,7 +1,11 @@
-"""Programmatic TOCTOU window detection over agent trajectories.
+"""Stale-dependency candidate detection over agent trajectories.
 
-Reproduces the labelling criterion from "Mind the Gap: Time-of-Check to
-Time-of-Use Vulnerabilities in LLM-Enabled Agents" (arXiv:2508.17155), which the
+A candidate is an OPPORTUNITY, not a demonstrated vulnerability. Read-then-act is
+the definition of agency, and copying a checked value into an action often
+prevents retargeting rather than enabling it. Naming these "vulnerabilities"
+was retracted; see the README.
+
+The criterion is adapted from "Mind the Gap" (arXiv:2508.17155), which the
 authors applied *by hand* to 97 AgentDojo tasks and did not release:
 
     "whether an earlier tool call reads the state of a resource and whether a
@@ -9,7 +13,7 @@ authors applied *by hand* to 97 AgentDojo tasks and did not release:
 
 Formalised here as: a call at step i reads resource R, and a later call at step
 j > i depends on R (reads it implicitly) while acting on it. The interval
-(i, j) is the *window* -- the span during which a mutation of R goes unnoticed.
+(i, j) is the *window* -- the span during which a mutation of R would go unnoticed.
 
 Doing this in code rather than by hand makes the labels auditable and lets the
 same criterion run over live trajectories, not just ground truth.
@@ -24,7 +28,7 @@ from .effects import Effect, Risk, effects_for, is_attacker_writable
 
 @dataclass(frozen=True)
 class Window:
-    """A TOCTOU window: state read at `check`, acted upon at `use`."""
+    """A candidate window: state read at `check`, acted upon at `use`."""
     resource: str
     check_idx: int
     check_tool: str
@@ -50,11 +54,11 @@ def find_windows(
     *,
     high_risk_only: bool = False,
 ) -> list[Window]:
-    """Find TOCTOU windows in an ordered sequence of tool names.
+    """Find candidate windows in an ordered sequence of tool names.
 
     A window exists when an explicit READ of R is followed by a later call that
     both depends on R and changes state. The later call re-reads R implicitly and
-    assumes it is unchanged -- that assumption is the vulnerability.
+    assumes it is unchanged -- that assumption is what makes it a candidate.
 
     Only the most recent check before each use is reported, since that is the
     narrowest defensible window; reporting every earlier read would inflate counts.
@@ -99,12 +103,12 @@ def find_windows(
 
 
 def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]:
-    """Convert data-flow links into TOCTOU windows.
+    """Convert data-flow links into candidate windows.
 
     A link says a later call's argument came from an earlier call's output. If
     that later call changes state, then it acted on a value it checked earlier
-    and assumed unchanged -- the same vulnerability as a state dependency, just
-    carried through arguments instead of shared resources.
+    and assumed unchanged -- the same shape as a state dependency, just carried
+    through arguments instead of shared resources.
     """
     table = effects_for(suite)
     windows: list[Window] = []
@@ -130,7 +134,7 @@ def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]
 
 
 def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate") -> dict:
-    """Label a single task. Mirrors the paper's per-task vulnerable/not decision.
+    """Label a single task as carrying a stale-dependency candidate or not.
 
     `links` are optional provenance edges from staledep.provenance.trace; without
     them only state-typed windows are found, which under-counts.
@@ -152,7 +156,7 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
     exposed_high = [w for w in exposed if w.use_risk is Risk.HIGH]
     return {
         "n_calls": len(calls),
-        "vulnerable": bool(windows),
+        "candidate": bool(windows),
         "n_windows": len(windows),
         "n_state_windows": n_state,
         "n_dataflow_windows": len(windows) - n_state,

@@ -1,9 +1,9 @@
 """Extract executed tool sequences from AgentDojo message logs.
 
-The ground-truth labelling says which tasks *could* expose a TOCTOU window.
-This module works on what an agent *actually did*, which is the measurement the
-literature reports (12% of trajectories in arXiv:2508.17155) and the one any
-enforcement claim has to move.
+Ground-truth labelling says which tasks *could* expose a window. This module
+works on what an agent *actually did*, which is what any enforcement claim would
+have to move. Note that figures from arXiv:2508.17155 are not directly
+comparable: different criterion, task subset, and counting unit.
 
 A recorded run interleaves assistant messages carrying tool_calls with tool
 messages carrying the corresponding output, matched by tool_call_id.

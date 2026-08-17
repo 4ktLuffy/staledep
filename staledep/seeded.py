@@ -168,7 +168,7 @@ def evaluate(classify, trace) -> list[dict]:
         out.append({
             "cls": case.cls,
             "suite": case.suite,
-            "caught": bool(r["vulnerable"]),
+            "caught": bool(r["candidate"]),
             "exposed": bool(r.get("exposed")),
             "n_windows": r["n_windows"],
             "why": case.why,
