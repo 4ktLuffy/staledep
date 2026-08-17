@@ -18,7 +18,7 @@ import random
 from staledep.effects import Risk, effects_for
 from staledep.provenance import trace_from_log
 from staledep.toctou import classify_task
-from staledep.trajectory import steps_from_messages, tool_names
+from staledep.trajectory import committed, steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
 SUITES = ["banking", "slack", "travel", "workspace"]
@@ -42,7 +42,7 @@ for model in sorted(os.listdir(RUNS)):
             if len(steps) < 2:
                 continue
             links = trace_from_log(steps, errored)
-            r = classify_task(tool_names(steps), suite, links=links)
+            r = classify_task(tool_names(steps), suite, links=links, committed=committed(steps))
             if not r["candidate"]:
                 clean.append((model, suite, d.get("user_task_id"), steps, errored, links))
 

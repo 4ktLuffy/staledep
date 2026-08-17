@@ -142,24 +142,41 @@ def _output_haystack(output: Any) -> tuple[str, set[str]]:
 
 
 def trace_from_log(
-    steps: list[tuple[str, dict, Any]],
+    steps,
     errored: set[int] | None = None,
 ) -> list[ProvenanceLink]:
     """Compute provenance from an already-executed trajectory.
 
-    `steps` is an ordered list of (tool_name, args, output). Unlike `trace`,
-    nothing is executed -- these are the real outputs the agent actually saw,
-    which is what we want when analysing recorded runs.
+    `steps` may be a list of `staledep.trajectory.Step` (preferred) or of raw
+    (tool, args, output) tuples. Nothing is executed -- these are the real
+    outputs the agent saw.
 
-    `errored` holds indices whose call failed. Their output is an error string,
-    not state, so they are excluded as provenance sources: a value "matching" an
-    error message is coincidence, not data-flow.
+    Two exclusions, both necessary for a link to mean anything:
+
+    SAME-TURN. An assistant message can emit several calls at once. A later call
+    in the SAME message cannot have consumed an earlier one's output, because
+    the model had not seen it when it composed them. Verified: one message
+    containing read_file and send_money produced a link claiming the payment
+    came from the file. Without turn identity this fabricates dependencies
+    wherever a trajectory batches calls. Tuple input has no turn information, so
+    the exclusion cannot be applied -- pass Step objects.
+
+    ERRORED SOURCES. A failed call's output is an error string, not state; a
+    value "matching" it is coincidence.
     """
     errored = errored or set()
     links: list[ProvenanceLink] = []
-    outputs: list[tuple[int, str, str, set[str]]] = []
+    outputs: list[tuple[int, str, str, set[str], int]] = []   # + turn
 
-    for idx, (name, kwargs, output) in enumerate(steps):
+    norm = []
+    for i, st in enumerate(steps):
+        if hasattr(st, "tool"):
+            norm.append((st.idx, st.turn, st.tool, st.args, st.output))
+        else:
+            name, kwargs, output = st
+            norm.append((i, -1, name, kwargs, output))        # -1 = turn unknown
+
+    for idx, turn, name, kwargs, output in norm:
         for arg_name, arg_value in (kwargs or {}).items():
             wanted = _distinctive_values(arg_value)
             toks = _tokens(arg_value)
@@ -168,7 +185,11 @@ def trace_from_log(
             # Nearest-source attribution: scan backwards so the freshest check
             # is credited. Scanning forwards credited the earliest read, which
             # inflated window spans.
-            for src_idx, src_tool, src_text, src_nums in reversed(outputs):
+            for src_idx, src_tool, src_text, src_nums, src_turn in reversed(outputs):
+                # Same-turn calls were composed together; the sink could not have
+                # seen this output. Skip unless turn information is unavailable.
+                if turn >= 0 and src_turn >= 0 and src_turn == turn:
+                    continue
                 direct = next((w for w in wanted if (w in src_text) or (w in src_nums)), None)
                 if direct is not None or _token_match(toks, src_text):
                     links.append(ProvenanceLink(
@@ -180,48 +201,37 @@ def trace_from_log(
 
         if idx not in errored:
             text, nums = _output_haystack(output)
-            outputs.append((idx, name, text, nums))
+            outputs.append((idx, name, text, nums, turn))
 
     return links
 
 
-def trace(
-    calls: list[tuple[str, dict]],
-    runtime,
-    env,
-) -> tuple[list[ProvenanceLink], list[str]]:
-    """Execute `calls` in order, linking each call's arguments to earlier outputs.
+def trace(calls: list[tuple[str, dict]], runtime, env):
+    """Execute `calls`, then delegate to `trace_from_log`.
 
-    Returns (links, errors). Execution mutates `env`, so pass a copy if the
-    caller needs the original.
+    This used to be a second, divergent implementation. It scanned sources
+    forward (crediting the EARLIEST rather than the nearest) and recorded
+    errored outputs as lineage sources -- both bugs that were fixed in
+    `trace_from_log` and left here, while `label_suites.py` went on calling this
+    one. A public API that disagrees with the evaluated path is worse than no
+    public API, so it now executes and delegates rather than duplicating.
+
+    Ground-truth call lists have no turn structure, so same-turn exclusion
+    cannot apply here; each call is treated as its own turn, which is the
+    correct reading of a sequential ground truth.
+
+    Returns (links, errors). Execution mutates `env`; pass a copy if needed.
     """
-    links: list[ProvenanceLink] = []
+    from .trajectory import Step
+
+    steps: list[Step] = []
     errors: list[str] = []
-    outputs: list[tuple[int, str, str, set[str]]] = []  # idx, tool, text, numbers
-
     for idx, (name, kwargs) in enumerate(calls):
-        # Link this call's arguments to any earlier output containing them.
-        for arg_name, arg_value in (kwargs or {}).items():
-            wanted = _distinctive_values(arg_value)
-            if not wanted:
-                continue
-            for src_idx, src_tool, src_text, src_nums in outputs:
-                hit = next(
-                    (w for w in wanted if (w in src_text) or (w in src_nums)),
-                    None,
-                )
-                if hit is not None:
-                    links.append(ProvenanceLink(
-                        source_idx=src_idx, source_tool=src_tool,
-                        sink_idx=idx, sink_tool=name,
-                        arg_name=arg_name, value=str(arg_value),
-                    ))
-                    break  # nearest-source attribution: one edge per argument
-
         result, err = runtime.run_function(env, name, kwargs or {}, raise_on_error=False)
         if err:
             errors.append(f"{idx}:{name}: {err}")
-        text, nums = _output_haystack(result)
-        outputs.append((idx, name, text, nums))
+        steps.append(Step(idx=idx, turn=idx, tool=name, args=kwargs or {},
+                          output=result, errored=bool(err)))
 
-    return links, errors
+    errored = {s.idx for s in steps if s.errored}
+    return trace_from_log(steps, errored), errors

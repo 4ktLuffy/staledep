@@ -14,7 +14,7 @@ import random
 
 from staledep.provenance import _distinctive_values, trace_from_log
 from staledep.toctou import classify_task
-from staledep.trajectory import steps_from_messages, tool_names
+from staledep.trajectory import committed, steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
 SUITES = ["banking", "slack", "travel", "workspace"]
@@ -39,7 +39,7 @@ for model in sorted(os.listdir(RUNS)):
             if not steps:
                 continue
             links = trace_from_log(steps, errored)
-            r = classify_task(tool_names(steps), suite, links=links)
+            r = classify_task(tool_names(steps), suite, links=links, committed=committed(steps))
             if r["candidate"]:
                 flagged.append((model, suite, d.get("user_task_id"), steps, links, r))
 

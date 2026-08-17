@@ -12,7 +12,7 @@ import os
 
 from staledep.provenance import trace_from_log
 from staledep.toctou import classify_task
-from staledep.trajectory import steps_from_messages, tool_names
+from staledep.trajectory import committed, steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
 SUITES = ["banking", "slack", "travel", "workspace"]
@@ -39,11 +39,11 @@ def main() -> None:
                 names = tool_names(steps)
                 per[suite]["n"] += 1
                 total["n"] += 1
-                base = classify_task(names, suite, links=links)
+                base = classify_task(names, suite, links=links, committed=committed(steps))
                 per[suite]["cand"] += base["candidate"]
                 total["cand"] += base["candidate"]
                 for tm in MODELS:
-                    r = classify_task(names, suite, links=links, threat_model=tm)
+                    r = classify_task(names, suite, links=links, threat_model=tm, committed=committed(steps))
                     per[suite][tm] += r["exposed"]
                     total[tm] += r["exposed"]
                     per[suite][tm + "_h"] += bool(r["n_exposed_high_risk"])

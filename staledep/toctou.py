@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .binding import Bind, bind_of
 from .effects import Effect, Risk, effects_for, is_attacker_writable
 
 
@@ -133,7 +134,8 @@ def windows_from_provenance(calls: list[str], links, suite: str) -> list[Window]
     return windows
 
 
-def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate") -> dict:
+def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate",
+                  committed: list[bool] | None = None) -> dict:
     """Label a single task as carrying a stale-dependency candidate or not.
 
     `links` are optional provenance edges from staledep.provenance.trace; without
@@ -148,12 +150,36 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
                 windows.append(w)
                 seen.add((w.check_idx, w.use_idx, w.resource))
 
+    # A sink that raised did not commit. An uncommitted action is not an
+    # exploited use, so it is counted separately rather than silently included.
+    if committed is not None:
+        uncommitted = [w for w in windows
+                       if w.use_idx < len(committed) and not committed[w.use_idx]]
+        windows = [w for w in windows
+                   if w.use_idx >= len(committed) or committed[w.use_idx]]
+    else:
+        uncommitted = []
+
+    # Edge-level binding. A SNAPSHOT edge copies the checked value into the
+    # argument and cannot be moved by mutating state, however wide the window.
+    temporal = [w for w in windows
+                if bind_of(suite, w.use_tool, w.resource) in (Bind.DEREFERENCE, Bind.CONTROL)]
+    snapshot_only = [w for w in windows
+                     if bind_of(suite, w.use_tool, w.resource) is Bind.SNAPSHOT]
+    unknown_bind = [w for w in windows
+                    if bind_of(suite, w.use_tool, w.resource) is Bind.UNKNOWN]
+
     high = [w for w in windows if w.use_risk is Risk.HIGH]
     # Conditioning on mutability is what makes this a threat statement rather
     # than a restatement of what agency is. A candidate over state only the user
     # can write has no adversary in a position to move it.
     exposed = [w for w in windows if is_attacker_writable(suite, w.resource, threat_model)]
     exposed_high = [w for w in exposed if w.use_risk is Risk.HIGH]
+    # The narrow set: temporal binding AND an attacker who can move it AND a
+    # high-risk sink that committed.
+    danger = [w for w in temporal
+              if is_attacker_writable(suite, w.resource, threat_model)]
+    danger_high = [w for w in danger if w.use_risk is Risk.HIGH]
     return {
         "n_calls": len(calls),
         "candidate": bool(windows),
@@ -165,6 +191,15 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
         "exposed": bool(exposed),
         "n_exposed_windows": len(exposed),
         "n_exposed_high_risk": len(exposed_high),
+        # lexical/effect flow vs temporal dependency -- these are NOT the same
+        "temporal": bool(temporal),
+        "n_temporal_windows": len(temporal),
+        "n_snapshot_only_windows": len(snapshot_only),
+        "n_unknown_bind_windows": len(unknown_bind),
+        "n_uncommitted_sink_windows": len(uncommitted),
+        "danger": bool(danger),
+        "n_danger_windows": len(danger),
+        "n_danger_high_risk": len(danger_high),
         "max_span": max((w.span for w in windows), default=0),
         "resources": sorted({w.resource for w in windows}),
         "windows": windows,

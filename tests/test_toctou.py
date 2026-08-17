@@ -396,7 +396,8 @@ def test_steps_from_messages_matches_results_by_id():
          "content": "DE89", "error": None},
     ]
     steps, errored = steps_from_messages(msgs)
-    assert steps == [("get_iban", {}, "DE89")]
+    assert [s.as_tuple() for s in steps] == [("get_iban", {}, "DE89")]
+    assert steps[0].turn == 0 and not steps[0].errored
     assert errored == set()
 
 
@@ -416,6 +417,57 @@ def test_steps_from_messages_survives_empty_and_malformed():
     assert steps_from_messages([]) == ([], set())
     assert steps_from_messages([{"role": "assistant"}]) == ([], set())
     assert steps_from_messages([{"role": "assistant", "tool_calls": [{}]}]) == ([], set())
+
+
+def test_same_turn_calls_do_not_form_a_dependency():
+    """VERIFIED FABRICATION: two calls in ONE assistant message were linked, so
+    a payment appeared to depend on a file the model had not yet seen. Calls
+    composed together cannot consume each other's output."""
+    from staledep.provenance import trace_from_log
+    from staledep.trajectory import steps_from_messages
+
+    msgs = [
+        {"role": "assistant", "tool_calls": [
+            {"function": "read_file", "args": {"file_path": "b.txt"}, "id": "a"},
+            {"function": "send_money",
+             "args": {"recipient": "UK12345678901234567890", "amount": 98.70}, "id": "b"}]},
+        {"role": "tool", "tool_call_id": "a",
+         "tool_call": {"function": "read_file", "args": {}},
+         "content": "Pay UK12345678901234567890 the sum of 98.70", "error": None},
+        {"role": "tool", "tool_call_id": "b",
+         "tool_call": {"function": "send_money", "args": {}},
+         "content": "sent", "error": None},
+    ]
+    steps, errored = steps_from_messages(msgs)
+    assert {s.turn for s in steps} == {0}, "both calls are one turn"
+    assert trace_from_log(steps, errored) == []
+
+
+def test_uncommitted_sink_is_separated_not_counted():
+    """A sink that raised did not commit, so it is not an exploited use."""
+    r = classify_task(["get_iban", "send_money"], "banking", committed=[True, False])
+    assert r["n_uncommitted_sink_windows"] == 1
+    assert not r["candidate"]
+
+
+def test_binding_is_per_edge_not_per_tool():
+    """send_money is SNAPSHOT for a copied recipient and DEREFERENCE for the
+    source account. Labelling the whole tool erases the second."""
+    from staledep.binding import Bind, bind_of
+    assert bind_of("banking", "send_money", "transactions") is Bind.SNAPSHOT
+    assert bind_of("banking", "send_money", "account.iban") is Bind.DEREFERENCE
+    assert bind_of("banking", "send_money", "account.balance") is Bind.CONTROL
+
+
+def test_trace_and_trace_from_log_agree():
+    """They diverged: trace() credited the earliest source and kept errored
+    outputs, while trace_from_log() fixed both -- and label_suites.py used the
+    broken one."""
+    import inspect
+
+    from staledep import provenance
+    src = inspect.getsource(provenance.trace)
+    assert "trace_from_log" in src, "trace() must delegate, not reimplement"
 
 
 def test_classify_task_on_empty_trajectory():
