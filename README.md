@@ -118,24 +118,43 @@ security-relevant residue is narrower than 3.6%: roughly **60 trajectories acros
 
 ### Recall by dependency class
 
-Twelve synthetic trajectories each carry a known dependency of one class
-(`python report_recall.py`):
+Twelve synthetic trajectories, each carrying a known dependency of one class
+(`python report_recall.py`). The table below is a **correction**: an earlier
+version claimed 3/12 "handled by the intended mechanism" while counting
+`literal-copy` and `synthesised-text` as successes. Both produce **snapshot**
+windows — precisely what this README argues is *not* a temporal dependency. The
+detector was being credited for catching flows it also calls safe.
+
+| class | flagged | window binding | temporal? |
+|---|---|---|---|
+| shared-resource (lost update) | yes | dereference | **yes — the only unambiguous one** |
+| aliasing | yes | dereference | yes, but caught incidentally |
+| control-dependence | yes | control | yes, but caught incidentally |
+| phantom | yes | unknown | excluded from the exploitable set |
+| literal-copy | yes | **snapshot** | **no — a safe snapshot** |
+| synthesised-text | yes | **snapshot** | **no — a safe snapshot** |
+| negative-evidence | NO | — | no coverage |
+| aggregate | NO | — | no coverage |
+| derived-value | NO | — | no coverage |
+| laundering-hop | NO | — | no coverage |
+| implicit-read-in-write | NO | — | no coverage |
+| cross-system | NO | — | no coverage |
 
 | | count |
 |---|---|
 | Flagged by any rule | 6/12 (50%) |
-| **Handled by the intended mechanism** | **3/12 (25%)** |
+| Produce a **temporal** window | 3/12 (25%) |
+| **Temporal AND by the intended mechanism** | **1/12 (8%)** |
 
-Three catches are incidental — a control dependence is caught only because the
-sink happens to declare the same resource, an alias never has to be resolved when
-both calls touch one coarse resource, and a phantom is caught on a literal
-amount. Reconstruct those cases slightly differently and they disappear.
+The last row is the defensible one. `aliasing` and `control-dependence` are
+temporal but were caught by a rule that happened to fire — the alias was never
+resolved, and the control dependence only matched because the sink declares the
+same resource. Reconstruct either slightly differently and they disappear.
 
-Classes with **no** coverage: negative evidence, aggregates, derived values
-(currency conversion), laundering through an intermediate tool, implicit reads
-inside write tools, and cross-system policy dependence. Aggregates and derived
-values are exactly what invoice work produces, which is uncomfortable for a
-financial-domain tool and is stated here rather than discovered later.
+**For the financial domain specifically**, the highest-value classes —
+aggregates (a total that is the sum of line items) and derived values (currency
+conversion) — are in the zero-coverage set. That is stated here rather than left
+for a reader to discover.
 
 ### Attack-active runs contain no free exploitability evidence
 
@@ -185,6 +204,18 @@ Earlier drafts reported two findings and a comparison. All are withdrawn:
 
 ## Scope: what this does not claim
 
+- **Precision was never stratified by signal.** Lexical lineage is the sole
+  basis for **49.9%** of flags, effect typing alone for 12.9%, both for 37.2%.
+  The ~93% figure is pooled across three hand-audited samples of 14–18, so a
+  lexical mechanism running materially worse than effect typing would be
+  invisible in it. Unresolved.
+- **The threat-model annotations are fragile.** 29 resources, assigned by me
+  from AgentDojo environment source. Flipping a single contestable one
+  (`slack.channels` from agent to untrusted) moves the strict rate by
+  **+5.31 points**. The waterfall's `temporal` stage does not depend on them —
+  binding is a property of the tool signature — but the attacker-writable stage
+  does.
+
 - **Not prevalence.** Precision-adjusting a flagged rate does not yield
   prevalence while false negatives are unquantified.
 - **Precision ≈93%**, from three hand-audited samples of 14–18. The interval on
@@ -222,6 +253,25 @@ steps, errored = steps_from_messages(messages)
 links = trace_from_log(steps, errored)
 result = classify_task(tool_names(steps), "banking", links=links)
 ```
+
+## Enabling CI
+
+`ci-workflow.yml` (lint + tests on 3.10/3.11/3.12) sits at the repository root
+rather than `.github/workflows/` because pushing to that path needs an OAuth
+token with the `workflow` scope. To enable, either move it through the GitHub
+web editor, or locally:
+
+```bash
+gh auth refresh -h github.com -s workflow
+mkdir -p .github/workflows && git mv ci-workflow.yml .github/workflows/ci.yml
+git commit -m "Enable CI" && git push
+```
+
+## Corpus
+
+Every figure is computed over AgentDojo trajectories pinned in
+[CORPUS.md](CORPUS.md), including the commit, the selection rules, and every
+denominator.
 
 ## Tests
 
@@ -392,16 +442,3 @@ silently dropped the TOCTOU-vs-corruption discrimination — the controls were
 still computed and never applied. `sweep_gaps`, `is_toctou`, `Outcome` and
 `evaluate` had no callers at all.
 
-## Enabling CI
-
-`ci-workflow.yml` is the GitHub Actions config (lint + tests on Python 3.10/3.11/3.12).
-It sits at the repository root rather than `.github/workflows/` because pushing to
-that path requires an OAuth token with the `workflow` scope. To enable it, move
-the file to `.github/workflows/ci.yml` through the GitHub web editor, or locally
-with a token that has the scope:
-
-```bash
-gh auth refresh -h github.com -s workflow
-mkdir -p .github/workflows && git mv ci-workflow.yml .github/workflows/ci.yml
-git commit -m "Enable CI" && git push
-```

@@ -514,3 +514,28 @@ def test_recording_runtime_reports_whether_the_mutation_fired():
         rt.run_function(object(), "get_iban", {})     # agent makes ONE call
         assert rt.did_fire() is expect, f"gap {gap}"
         assert bool(hits) is expect
+
+
+def test_snapshot_flows_are_not_counted_as_temporal():
+    """CORRECTION: an earlier recall claim credited literal-copy and
+    synthesised-text as successes. Both produce SNAPSHOT windows -- exactly what
+    this project argues is NOT a temporal dependency. The detector was being
+    credited for catching flows it also calls safe."""
+    from staledep.binding import Bind, bind_of
+    from staledep.provenance import trace_from_log
+    from staledep.seeded import CASES
+    from staledep.toctou import classify_task
+
+    temporal, snapshot = set(), set()
+    for c in CASES:
+        r = classify_task([n for n, _, _ in c.steps], c.suite,
+                          links=trace_from_log(c.steps))
+        if not r["candidate"]:
+            continue
+        binds = {bind_of(c.suite, w.use_tool, w.resource) for w in r["windows"]}
+        (temporal if binds & {Bind.DEREFERENCE, Bind.CONTROL} else snapshot).add(c.cls)
+
+    assert temporal == {"shared-resource", "aliasing", "control-dependence"}
+    assert snapshot == {"literal-copy", "synthesised-text", "phantom"}
+    # only shared-resource is temporal AND caught by the intended mechanism
+    assert len(temporal - {"aliasing", "control-dependence"}) == 1

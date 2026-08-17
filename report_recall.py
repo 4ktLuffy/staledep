@@ -10,6 +10,7 @@ and an incidental catch is fragile: reconstruct the case slightly differently an
 it disappears. Reporting only the combined number would overstate coverage.
 """
 
+from staledep.binding import Bind, bind_of
 from staledep.provenance import trace_from_log
 from staledep.seeded import CASES
 from staledep.toctou import classify_task
@@ -35,27 +36,36 @@ def main() -> None:
 
     print("SEEDED RECALL BY DEPENDENCY CLASS")
     print()
-    print("%-24s %-11s %-9s %s" % ("CLASS", "FLAGGED", "MECHANISM", "SIGNAL"))
+    print("%-24s %-9s %-10s %s" % ("CLASS", "FLAGGED", "TEMPORAL", "BINDING"))
     print("-" * 78)
-    flagged = mechanism = 0
+    flagged = mechanism = n_temporal = 0
     for case, r in rows:
         is_flagged = bool(r["candidate"])
         is_real = is_flagged and case.cls not in INCIDENTAL
+        binds = {bind_of(case.suite, w.use_tool, w.resource) for w in r["windows"]}
+        temporal = bool(binds & {Bind.DEREFERENCE, Bind.CONTROL})
+        signal = ",".join(sorted(b.value for b in binds)) or "-"
         flagged += is_flagged
-        mechanism += is_real
-        signal = ("state" if r["n_state_windows"] else
-                  "dataflow" if r["n_dataflow_windows"] else "-")
-        print("%-24s %-11s %-9s %s" % (
+        n_temporal += temporal
+        mechanism += bool(is_real and temporal)
+        print("%-24s %-9s %-10s %s" % (
             case.cls,
             "yes" if is_flagged else "NO",
-            "yes" if is_real else ("incidental" if is_flagged else "no"),
+            ("yes" if temporal else "SNAPSHOT" if is_flagged else "-"),
             signal,
         ))
 
     n = len(rows)
     print("-" * 78)
-    print("flagged by any rule       : %d/%d (%.0f%%)" % (flagged, n, 100 * flagged / n))
-    print("handled by the mechanism  : %d/%d (%.0f%%)" % (mechanism, n, 100 * mechanism / n))
+    print("flagged by any rule            : %d/%d (%.0f%%)" % (flagged, n, 100 * flagged / n))
+    print("produce a TEMPORAL window      : %d/%d (%.0f%%)" % (n_temporal, n, 100 * n_temporal / n))
+    print("temporal AND intended mechanism: %d/%d (%.0f%%)  <- the defensible figure" % (
+        mechanism, n, 100 * mechanism / n))
+    print()
+    print("Snapshot flows are flagged but are NOT temporal dependencies: the")
+    print("checked value was copied into the argument, so mutating the source")
+    print("afterwards changes nothing. Counting them as catches credited the")
+    print("detector for finding flows it also calls safe.")
     print()
     print("Incidental catches, and why they do not count:")
     for cls, why in INCIDENTAL.items():
