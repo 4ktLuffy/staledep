@@ -35,6 +35,7 @@ import json
 import os
 
 from staledep.binding import Bind, bind_of
+from staledep.numeric import trace_numeric
 from staledep.provenance import trace_from_log
 from staledep.shell import effect_for_step
 from staledep.toctou import classify_task
@@ -76,7 +77,8 @@ def agentdojo():
                 n_traj += 1
                 r = classify_task(tool_names(steps), suite,
                                   links=trace_from_log(steps, errored),
-                                  committed=committed(steps))
+                                  committed=committed(steps),
+                                  numeric_links=trace_numeric(steps, errored))
                 _tally(r["windows"], suite, binds, pairs, unknown_pairs)
     return n_traj, binds, unknown_pairs
 

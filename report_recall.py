@@ -11,6 +11,7 @@ it disappears. Reporting only the combined number would overstate coverage.
 """
 
 from staledep.binding import Bind, bind_of
+from staledep.numeric import trace_numeric
 from staledep.provenance import trace_from_log
 from staledep.seeded import CASES
 from staledep.toctou import classify_task
@@ -30,8 +31,12 @@ INCIDENTAL = {
 def main() -> None:
     rows = []
     for case in CASES:
+        steps = [type("S", (), {"idx": i, "turn": i, "tool": n, "args": a,
+                                "output": o, "errored": False})()
+                 for i, (n, a, o) in enumerate(case.steps)]
         links = trace_from_log(case.steps)
-        r = classify_task([n for n, _, _ in case.steps], case.suite, links=links)
+        r = classify_task([n for n, _, _ in case.steps], case.suite, links=links,
+                          numeric_links=trace_numeric(steps))
         rows.append((case, r))
 
     print("SEEDED RECALL BY DEPENDENCY CLASS")

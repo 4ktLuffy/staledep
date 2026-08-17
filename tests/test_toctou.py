@@ -579,3 +579,33 @@ def test_unrecognised_command_stays_pessimistic():
     for cmd in ("python train.py", "npm install", "./deploy.sh", "make release"):
         eff, bind = classify_command(cmd)
         assert eff.risk is Risk.HIGH and bind is Bind.UNKNOWN, cmd
+
+
+def test_numeric_lineage_covers_aggregates():
+    """`aggregate` and `derived-value` were the two seeded classes with ZERO
+    coverage, and both reviewers named them as the gap that disqualifies this
+    for invoice work: a payment total is the SUM of line items and appears
+    verbatim in no source."""
+    from staledep.numeric import explain
+    assert explain(200.0, [120.0, 65.5, 14.5]) == ("subset-sum", (120.0, 65.5, 14.5))
+    assert explain(1150.0, [1000.0])[0] == "rate:vat_15_incl"
+    assert explain(150.0, [1000.0])[0] == "rate:vat_15"
+
+
+def test_numeric_lineage_refuses_unexplainable_conversions():
+    """100 EUR -> 6350 ETB needs an unknown rate. Admitting unknown multipliers
+    would match any two numbers, so that class stays uncovered BY DESIGN."""
+    from staledep.numeric import explain
+    assert explain(6350.0, [100.0]) is None
+    assert explain(42.0, [7.0, 11.0, 13.0]) is None
+    assert explain(5.0, [1000.0]) is None, "below the magnitude floor"
+
+
+def test_rate_table_contains_no_coincidental_multipliers():
+    """double/half/ten_pct were in RATES and produced 8 of 10 new links on the
+    real corpus, against 2 from the VAT rates. Any figure co-occurs with its
+    double; that is arithmetic coincidence, not a rate a system applies."""
+    from staledep.numeric import RATES
+    assert not ({0.5, 2.0, 0.1, 1.1} & set(RATES.values())), \
+        "a coincidental multiplier re-entered the rate table"
+    assert all(k.startswith("vat_") for k in RATES), "every rate must be a declared tax rate"

@@ -119,42 +119,48 @@ security-relevant residue is narrower than 3.6%: roughly **60 trajectories acros
 ### Recall by dependency class
 
 Twelve synthetic trajectories, each carrying a known dependency of one class
-(`python report_recall.py`). The table below is a **correction**: an earlier
-version claimed 3/12 "handled by the intended mechanism" while counting
-`literal-copy` and `synthesised-text` as successes. Both produce **snapshot**
-windows — precisely what this README argues is *not* a temporal dependency. The
-detector was being credited for catching flows it also calls safe.
+(`python report_recall.py`).
 
 | class | flagged | window binding | temporal? |
 |---|---|---|---|
 | shared-resource (lost update) | yes | dereference | **yes — the only unambiguous one** |
 | aliasing | yes | dereference | yes, but caught incidentally |
 | control-dependence | yes | control | yes, but caught incidentally |
+| **aggregate** | **yes** | snapshot | no — the sum is copied into the argument |
 | phantom | yes | unknown | excluded from the exploitable set |
-| literal-copy | yes | **snapshot** | **no — a safe snapshot** |
-| synthesised-text | yes | **snapshot** | **no — a safe snapshot** |
+| literal-copy | yes | snapshot | no — a safe snapshot |
+| synthesised-text | yes | snapshot | no — a safe snapshot |
+| derived-value | NO | — | **uncovered by design** (see below) |
 | negative-evidence | NO | — | no coverage |
-| aggregate | NO | — | no coverage |
-| derived-value | NO | — | no coverage |
 | laundering-hop | NO | — | no coverage |
 | implicit-read-in-write | NO | — | no coverage |
 | cross-system | NO | — | no coverage |
 
 | | count |
 |---|---|
-| Flagged by any rule | 6/12 (50%) |
+| Flagged by any rule | 7/12 (58%) |
 | Produce a **temporal** window | 3/12 (25%) |
 | **Temporal AND by the intended mechanism** | **1/12 (8%)** |
 
 The last row is the defensible one. `aliasing` and `control-dependence` are
-temporal but were caught by a rule that happened to fire — the alias was never
-resolved, and the control dependence only matched because the sink declares the
-same resource. Reconstruct either slightly differently and they disappear.
+temporal but were caught by a rule that happened to fire.
 
-**For the financial domain specifically**, the highest-value classes —
-aggregates (a total that is the sum of line items) and derived values (currency
-conversion) — are in the zero-coverage set. That is stated here rather than left
-for a reader to discover.
+**Numeric lineage** (`numeric.py`) closed the `aggregate` gap. Lexical matching
+only finds values that were *copied*; in financial work most are *derived* — a
+total is the sum of line items, a VAT line is a percentage of a subtotal, and
+neither appears verbatim in any source. Two relations are detected because both
+are verifiable rather than plausible: **subset-sum** (`120.0 + 65.5 + 14.5 =
+200.0`) and **fixed rate** against a table containing only declared VAT rates.
+
+**Arbitrary conversion is refused.** `100 EUR → 6350 ETB` needs an unknown
+multiplier, and admitting unknown multipliers matches any two numbers, so
+`derived-value` stays uncovered and stays declared as uncovered. An earlier rate
+table also held `double`, `half` and `ten_pct`; on the real corpus those three
+produced 8 of 10 new links against 2 from the VAT rates. They are arithmetic
+coincidence, not rates a system applies, and were removed — false positives fell
+from +1.1% to **+0.3%** of corpus windows.
+
+**For the financial domain**, aggregates are now covered; derived values are not.
 
 ### Attack-active runs contain no free exploitability evidence
 

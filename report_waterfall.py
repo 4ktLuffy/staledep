@@ -29,6 +29,7 @@ import os
 
 from staledep.binding import bind_of
 from staledep.effects import Risk
+from staledep.numeric import trace_numeric
 from staledep.provenance import trace_from_log
 from staledep.toctou import classify_task, find_windows, windows_from_provenance
 from staledep.trajectory import committed, steps_from_messages, tool_names
@@ -68,12 +69,14 @@ def main() -> None:
 
                 # same-turn excluded (Step objects carry turn identity)
                 links = trace_from_log(steps, errored)
+                numeric = trace_numeric(steps, errored)
                 w_turn = find_windows(names, suite) + windows_from_provenance(names, links, suite)
                 if w_turn:
                     stage["after_same_turn"] += 1
                     per_suite[suite]["after_same_turn"] += 1
 
-                r = classify_task(names, suite, links=links, committed=committed(steps))
+                r = classify_task(names, suite, links=links, committed=committed(steps),
+                                  numeric_links=numeric)
                 if r["candidate"]:
                     stage["after_committed"] += 1
                     per_suite[suite]["after_committed"] += 1

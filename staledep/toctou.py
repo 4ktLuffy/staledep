@@ -151,7 +151,8 @@ def windows_from_provenance(calls: list[str], links, suite: str,
 def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate",
                   committed: list[bool] | None = None,
                   step_effects: list | None = None,
-                  step_binds: list | None = None) -> dict:
+                  step_binds: list | None = None,
+                  numeric_links=None) -> dict:
     """Label a single task as carrying a stale-dependency candidate or not.
 
     `links` are optional provenance edges from staledep.provenance.trace; without
@@ -159,6 +160,13 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
     """
     windows = find_windows(calls, suite, step_effects=step_effects)
     n_state = len(windows)
+    # Numeric lineage: an argument DERIVED from earlier output rather than copied.
+    # Lexical matching is blind to it, which is why aggregates and rate
+    # derivations -- most financial arithmetic -- had zero coverage.
+    all_links = list(links or [])
+    if numeric_links:
+        all_links = all_links + list(numeric_links)
+    links = all_links or None
     if links:
         seen = {(w.check_idx, w.use_idx, w.resource) for w in windows}
         for w in windows_from_provenance(calls, links, suite, step_effects):
