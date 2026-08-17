@@ -367,3 +367,17 @@ test asserting every resource in every effect table has a declared writer.
 silently dropped the TOCTOU-vs-corruption discrimination — the controls were
 still computed and never applied. `sweep_gaps`, `is_toctou`, `Outcome` and
 `evaluate` had no callers at all.
+
+## Enabling CI
+
+`ci-workflow.yml` is the GitHub Actions config (lint + tests on Python 3.10/3.11/3.12).
+It sits at the repository root rather than `.github/workflows/` because pushing to
+that path requires an OAuth token with the `workflow` scope. To enable it, move
+the file to `.github/workflows/ci.yml` through the GitHub web editor, or locally
+with a token that has the scope:
+
+```bash
+gh auth refresh -h github.com -s workflow
+mkdir -p .github/workflows && git mv ci-workflow.yml .github/workflows/ci.yml
+git commit -m "Enable CI" && git push
+```
