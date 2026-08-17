@@ -35,6 +35,7 @@ from staledep.toctou import classify_task, find_windows, windows_from_provenance
 from staledep.trajectory import committed, steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
+_TIER_ORDER = {"state": 0, "strong": 1, "token-only": 2}
 SUITES = ["banking", "slack", "travel", "workspace"]
 
 
@@ -42,6 +43,8 @@ def main() -> None:
     stage = collections.Counter()
     per_suite = collections.defaultdict(collections.Counter)
     bind_counts = collections.Counter()
+    tier_danger = collections.Counter()
+    tier_temporal = collections.Counter()
     danger_rows = []
 
     for model in sorted(os.listdir(RUNS)):
@@ -89,7 +92,13 @@ def main() -> None:
                 if r["danger"]:
                     stage["danger"] += 1
                     per_suite[suite]["danger"] += 1
+                tier_temporal.update(r["tier_temporal"])
                 if r["n_danger_high_risk"]:
+                    # A trajectory is credited to its STRONGEST evidence: the
+                    # question is whether the claim stands, not whether some
+                    # weaker corroboration also exists.
+                    tier_danger[min(r["tier_danger_high"],
+                                    key=lambda t: _TIER_ORDER[t])] += 1
                     stage["danger_high"] += 1
                     per_suite[suite]["danger_high"] += 1
                     danger_rows.append((model, suite, d.get("user_task_id"),
@@ -123,6 +132,20 @@ def main() -> None:
         print("%-11s %8.1f%% %8.1f%% %8.1f%% %8.1f%% %8.1f%%" % (
             suite, 100*c["broad"]/e, 100*c["after_same_turn"]/e,
             100*c["after_committed"]/e, 100*c["temporal"]/e, 100*c["danger_high"]/e))
+
+    print("\nEVIDENCE TIER — what each flag actually rests on")
+    print("  (state = effect typing alone; strong = exact value, full date or"
+          " arithmetic;\n   token-only = nothing but two shared words)")
+    tt = sum(tier_temporal.values())
+    print("  temporal windows      : " + "  ".join(
+        "%s %d (%.1f%%)" % (k, tier_temporal[k], 100 * tier_temporal[k] / max(tt, 1))
+        for k in ("state", "strong", "token-only")))
+    td = sum(tier_danger.values())
+    print("  danger-set trajectories: " + "  ".join(
+        "%s %d (%.1f%%)" % (k, tier_danger[k], 100 * tier_danger[k] / max(td, 1))
+        for k in ("state", "strong", "token-only")))
+    print("  -> the loosest matcher contributes %.1f%% of the headline set."
+          % (100 * tier_danger["token-only"] / max(td, 1)))
 
     print("\nWINDOWS BY EDGE BINDING (top 14)")
     for (suite, tool, b), c in bind_counts.most_common(14):

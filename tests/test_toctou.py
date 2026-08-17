@@ -16,7 +16,7 @@ from staledep.provenance import (
     _tokens,
     trace_from_log,
 )
-from staledep.toctou import classify_task, find_windows
+from staledep.toctou import classify_task, evidence_tier, find_windows
 
 
 # --------------------------------------------------------------- state typing
@@ -705,3 +705,45 @@ def test_lexical_links_record_which_rule_matched():
     ]
     links = trace_from_log(steps)
     assert links and links[0].rule == "direct"
+
+
+# ------------------------------------------------------------- evidence tier
+def test_effect_typed_window_needs_no_lineage_to_be_reported():
+    w = find_windows(["get_iban", "send_money"], "banking")[0]
+    assert evidence_tier(w, []) == "state"
+
+
+def test_a_window_resting_only_on_shared_words_is_marked_weak():
+    """The objection any reviewer raises about fuzzy matching. Without a tier it
+    cannot be answered with a number; measured, token-only is 0% of the
+    high-risk committed set."""
+    w = find_windows(["get_iban", "send_money"], "banking")[0]
+    link = ProvenanceLink(w.check_idx, "get_iban", w.use_idx, "send_money",
+                          "subject", "v", rule="token")
+    assert evidence_tier(w, [link]) == "token-only"
+
+
+def test_one_strong_link_outranks_any_number_of_weak_ones():
+    w = find_windows(["get_iban", "send_money"], "banking")[0]
+    weak = [ProvenanceLink(w.check_idx, "get_iban", w.use_idx, "send_money",
+                           "a%d" % i, "v", rule="token") for i in range(5)]
+    strong = ProvenanceLink(w.check_idx, "get_iban", w.use_idx, "send_money",
+                            "recipient", "DE89370400440532013000", rule="direct")
+    assert evidence_tier(w, weak + [strong]) == "strong"
+
+
+def test_numeric_lineage_is_strong_and_not_silently_called_direct():
+    """A NumericLink has no `rule` field. A getattr default would quietly label
+    arithmetic as `direct`; the tier is read off the type instead."""
+    from staledep.numeric import NumericLink
+    w = find_windows(["get_iban", "send_money"], "banking")[0]
+    link = NumericLink(w.check_idx, "get_iban", w.use_idx, "send_money",
+                       "amount", 200.0, "subset-sum", (120.0, 65.5, 14.5))
+    assert evidence_tier(w, [link]) == "strong"
+
+
+def test_links_on_a_different_edge_do_not_strengthen_this_window():
+    w = find_windows(["get_iban", "send_money"], "banking")[0]
+    elsewhere = ProvenanceLink(90, "read_file", 91, "send_money",
+                               "recipient", "DE89370400440532013000", rule="direct")
+    assert evidence_tier(w, [elsewhere]) == "state"

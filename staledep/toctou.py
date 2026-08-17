@@ -21,6 +21,7 @@ same criterion run over live trajectories, not just ground truth.
 
 from __future__ import annotations
 
+import collections
 from dataclasses import dataclass
 
 from .binding import Bind, bind_of
@@ -148,6 +149,41 @@ def windows_from_provenance(calls: list[str], links, suite: str,
     return windows
 
 
+#: Lineage rules strong enough to identify WHICH source a value came from: an
+#: exact identifier or amount, a full date, or arithmetic over specific numbers.
+_STRONG_RULES = frozenset({"direct", "date", "numeric"})
+
+
+def evidence_tier(window, links) -> str:
+    """How strong is the evidence under this window?
+
+    A window backed by an exact IBAN match is not the same claim as one backed by
+    two shared English words, and reporting a single count hides the difference.
+    That is the first objection any reviewer raises about fuzzy matching, and
+    without this it cannot be answered with a number.
+
+        state        effect typing alone -- no lineage needed or used
+        strong       an exact value, a full date, or arithmetic
+        token-only   nothing but two shared words, the loosest rule there is
+
+    Audited: token-only contributes 0% of the high-risk committed set, so the
+    headline does not rest on the loosest matcher. That is a measured property of
+    this corpus, not a guarantee -- it is reported so it stays checkable.
+    """
+    rules = set()
+    for link in links or []:
+        if (link.source_idx, link.sink_idx) != (window.check_idx, window.use_idx):
+            continue
+        # A NumericLink has no `rule`; it is arithmetic over specific numbers,
+        # which is strong by construction. Read it off the type rather than
+        # letting a getattr default quietly call it "direct".
+        rules.add("numeric" if hasattr(link, "relation")
+                  else getattr(link, "rule", "direct"))
+    if not rules:
+        return "state"
+    return "strong" if rules & _STRONG_RULES else "token-only"
+
+
 def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate",
                   committed: list[bool] | None = None,
                   step_effects: list | None = None,
@@ -226,6 +262,11 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
         "danger": bool(danger),
         "n_danger_windows": len(danger),
         "n_danger_high_risk": len(danger_high),
+        # Evidence strength, so a reported count can be read at an operating
+        # point rather than taken flat. See `evidence_tier`.
+        "tier_temporal": collections.Counter(evidence_tier(w, all_links) for w in temporal),
+        "tier_danger_high": collections.Counter(
+            evidence_tier(w, all_links) for w in danger_high),
         "max_span": max((w.span for w in windows), default=0),
         "resources": sorted({w.resource for w in windows}),
         "windows": windows,

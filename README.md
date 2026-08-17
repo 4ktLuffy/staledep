@@ -283,6 +283,33 @@ the most useful thing here.
   `date` rule backs 19.0% at **8/8 sampled genuine**, and the trajectory-level
   rates barely move (temporal 655 → 651, high-risk danger set 92 → 92).
 
+- **Every flag is reported with the strength of the evidence under it.** A window
+  backed by an exact IBAN match is not the same claim as one backed by two shared
+  English words, and a single count hides the difference — which is the first
+  objection fuzzy matching invites. `report_waterfall.py` now stratifies:
+
+  | tier | meaning | temporal windows | headline danger set |
+  |---|---|---|---|
+  | `state` | effect typing alone, no lineage used | 27.3% | **52.2%** |
+  | `strong` | exact value, full date, or arithmetic | 57.2% | **47.8%** |
+  | `token-only` | nothing but two shared words | 15.5% | **0.0%** |
+
+  **The loosest matcher contributes 0% of the headline set.** That is a measured
+  property of this corpus rather than a guarantee, which is why it is reported
+  every run instead of asserted once.
+
+  Getting there cost three refuted hypotheses, all recorded because the negative
+  results are the useful part. Token matching *looked* like the next defect at
+  31.1% of temporal-window evidence. It is not. **Proximity** was the obvious
+  discriminator and is inverted: the false positives are the closest (`meeting`
+  and `discuss` 11 chars apart — "meeting to discuss" is a stock phrase) and the
+  genuine ones far apart (`hawaii`/`packing`, 525). Filtering on it would have
+  deleted the real links and kept the bogus ones. **Document frequency** failed
+  for a duller reason: 112 of 121 candidate links had exactly one available
+  source, where "appears in every source" is trivially true. And the generic
+  matches turned out to be **redundant rather than harmful** — those edges carry
+  a `date` or `direct` link too, so the window stands without them.
+
   Rule attribution was also nondeterministic: candidate values live in a `set` and
   Python randomises string hashing per process, so which value matched — and so
   which rule was recorded — differed between runs on identical input. Verified by
