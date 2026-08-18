@@ -81,8 +81,8 @@ rather than collapsed into one number:
 | + high-risk committed sink | 56 | 2.2% |
 
 **Negative evidence is reported outside this funnel**, because it is a new signal
-rather than a filter: 146 trajectories (5.7%), 53 newly temporal, 9 newly in the
-danger set. Folding it into the funnel made a later stage larger than an earlier
+rather than a filter: 111 trajectories (4.4%), 43 newly temporal, **0 newly in the
+danger set**. Folding it into the funnel made a later stage larger than an earlier
 one, and a funnel that grows is not a funnel.
 
 The last stage was **92 until the binding tables were checked against AgentDojo's
@@ -280,9 +280,28 @@ structurally unlike the others. Both lineage signals follow a *value* from an
 output into a later argument; when the check returns nothing there is no value to
 follow, so both are blind by construction — yet "I searched for a cancellation,
 found none, and proceeded" is a textbook race. On the real corpus it fires on
-**5.7% of trajectories** (146), adding 53 temporal windows and 9 danger-set
-entries. The largest pattern is `search_files_by_filename → create_file`:
-check-then-create.
+**4.4% of trajectories** (111), adding 43 temporal windows and **zero** danger-set
+entries. `search_files_by_filename("grocery list") → [] → create_file(...)` is the
+clearest instance: check-then-create.
+
+It shipped with a defect, found by auditing it the same way as everything else.
+The first version had no **supersession** rule, and all nine danger-set entries it
+produced were one false positive:
+
+```
+search_files_by_filename("team meeting minutes") -> []        # missed
+search_files("team meeting minutes")             -> found it  # RETRIED
+get_file_by_id("25")                             -> content
+send_email(...)                                               # acts on content
+```
+
+The agent did not proceed on an absence — it recovered from a failed lookup, which
+is the opposite. An absence only counts while it is still the agent's most recent
+information about that resource, mirroring the existing rule that a write
+invalidates an earlier check. Adding it took links 171 → 114 and the signal's
+contribution to the headline **9 → 0**, which is the honest result: negative
+evidence finds real temporal windows and none of them survive to the danger set on
+this corpus.
 
 Its binding is `control`, and the reasoning is deliberately the *opposite* of the
 mistake made with `send_money`'s balance gate. That entry assumed a precondition

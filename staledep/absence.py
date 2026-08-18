@@ -29,6 +29,21 @@ DELIBERATELY NARROW. Every empty read paired with every later write would
 reproduce the read-then-act tautology this project exists to refute. Only the
 NEAREST subsequent state-changing call is paired, and only genuinely empty
 results count -- an error string is not an absence, it is a failure.
+
+SUPERSESSION. An absence is only load-bearing if it is still the agent's most
+recent information about that resource when it acts. The first version of this
+module had no such rule and every one of the nine danger-set entries it produced
+was the same false positive:
+
+    search_files_by_filename("team meeting minutes") -> []      # missed
+    search_files("team meeting minutes")             -> found   # RETRIED, found
+    get_file_by_id("25")                             -> content
+    send_email(...)                                             # acts on content
+
+The agent did not proceed on an absence. It recovered from a failed lookup, which
+is the opposite. A later non-empty read of the same resource therefore cancels the
+absence -- the mirror of the existing rule in find_windows that a write
+invalidates an earlier check.
 """
 
 from __future__ import annotations
@@ -115,12 +130,20 @@ def trace_absence(steps, errored: set[int] | None = None) -> list[AbsenceLink]:
             continue
         if not is_absent(output):
             continue
+        covered = eff.reads
         # Nearest subsequent state change only. Pairing every later write would
         # rebuild the read-then-act tautology.
         for j in range(i + 1, len(norm)):
-            s_idx, s_turn, s_tool, _, s_failed = norm[j]
+            s_idx, s_turn, s_tool, s_out, s_failed = norm[j]
             s_eff = table.get(s_tool)
-            if s_eff is None or s_eff.risk is Risk.READ:
+            if s_eff is None:
+                continue
+            if s_eff.risk is Risk.READ:
+                # A later successful read of the same resource supersedes the
+                # absence: the agent looked again and found something, so it is
+                # no longer acting on "nothing is there".
+                if (s_eff.reads & covered) and not s_failed and not is_absent(s_out):
+                    break
                 continue
             if turn >= 0 and s_turn >= 0 and s_turn == turn:
                 break      # composed together; the agent had not seen the result

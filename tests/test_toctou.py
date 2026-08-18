@@ -909,3 +909,33 @@ def test_numeric_lineage_skips_read_sinks_when_the_suite_is_known():
         ("get_most_recent_transactions", {"n": 101.0}, "x"),
     ]
     assert trace_numeric(steps, None, "banking") == []
+
+
+def test_a_later_successful_read_cancels_the_absence():
+    """VERIFIED FALSE POSITIVE, and the reason this guard exists. Every one of
+    the nine danger-set entries the first version of the absence signal produced
+    was this shape:
+
+        search_files_by_filename("team meeting minutes") -> []
+        search_files("team meeting minutes")             -> found it
+        get_file_by_id("25")                             -> content
+        send_email(...)
+
+    The agent did not proceed on an absence, it recovered from a failed lookup --
+    the opposite. An absence only counts while it is still the agent's most
+    recent information about that resource, mirroring the rule that a write
+    invalidates an earlier check. The guard took the signal's contribution to the
+    danger set from 9 to 0."""
+    from staledep.absence import trace_absence
+    retried = [
+        ("search_files_by_filename", {"filename": "minutes"}, []),
+        ("search_files", {"query": "minutes"}, "content: Team Meeting Minutes"),
+        ("send_email", {"recipients": ["a@b.c"]}, "sent"),
+    ]
+    assert trace_absence(retried) == [], "the retry found it; nothing was absent"
+
+    never_found = [
+        ("search_files_by_filename", {"filename": "grocery list"}, []),
+        ("create_file", {"filename": "grocery_list.txt"}, "created"),
+    ]
+    assert len(trace_absence(never_found)) == 1, "check-then-create is still a race"
