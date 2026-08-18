@@ -15,6 +15,38 @@ CONFIDENTIALITY. Transcripts contain whatever the user was working on. Provenanc
 matching reads argument values and tool output, so only projects whose content is
 safe to inspect should ever be passed here. Selection is the caller's
 responsibility and is deliberately not defaulted.
+
+BINDINGS VERIFIED BY EXPERIMENT, not asserted from tool names. The AgentDojo
+tables were checked against vendored source and five entries turned out to be
+fiction; Claude Code has no vendored source, so the equivalent check is to run
+the tools and observe. Procedure, in a scratch directory:
+
+    1. write a file, 2. Read it, 3. mutate it externally via Bash,
+    4. attempt the tool, 5. record what happens.
+
+    Edit   FAILS SAFE, twice over. With a stale Read the harness rejects the
+           call outright -- "File has been modified since read". Re-reading and
+           then editing on a stale `old_string` fails again -- "String to
+           replace not found in file". SNAPSHOT confirmed.
+
+    Write  FAILS SAFE TOO, which refutes what this file used to say. The old
+           comment read "Write does NOT require a prior Read and overwrites
+           unconditionally" and the binding was DEREFERENCE. Both halves are
+           wrong: Write is guarded by the same staleness check and aborts with
+           "File has been modified since read". A concurrent mutation cannot
+           redirect the write, it cancels it. SNAPSHOT.
+
+    NotebookEdit, TodoWrite  appear ZERO times in the live corpus and were never
+           exercised. Declared UNKNOWN. Untested is not the same as safe.
+
+The Write correction cost 4.8 points of the primary metric: live classification
+coverage fell 56.0% -> 51.2%. Not because anything got worse, but because 149
+`Bash -> Write` dataflow windows were only classifiable through the fiction.
+`bind_of` resolves a dataflow pseudo-resource through the SOURCE tool's reads and
+takes the most dangerous verdict, and Bash reads {shell, workspace.files}. While
+workspace.files said DEREFERENCE that outranked the `shell` UNKNOWN; with
+SNAPSHOT, UNKNOWN wins and the edge is honestly unclassifiable. The metric was
+inflated by an unverified assertion.
 """
 
 from __future__ import annotations
@@ -50,7 +82,10 @@ CLAUDE_CODE: dict[str, Effect] = {
                                      writes=_r({"workspace.files"})),
     "NotebookEdit": Effect(Risk.HIGH, reads=_r({"workspace.files"}),
                                       writes=_r({"workspace.files"})),
-    # Write does NOT require a prior Read and overwrites unconditionally
+    # Write DOES require a prior Read and does NOT overwrite unconditionally.
+    # Both halves of the previous comment were wrong; see the module docstring
+    # for the experiment. The read is still declared -- Write reads the file to
+    # enforce its staleness guard -- but the resulting edge is SNAPSHOT.
     "Write":      Effect(Risk.HIGH,  reads=_r({"workspace.files"}),
                                      writes=_r({"workspace.files"})),
     "Bash":       Effect(Risk.HIGH,  reads=_r({"workspace.files", "shell"}),

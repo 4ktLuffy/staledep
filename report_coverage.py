@@ -13,8 +13,15 @@ This is the right primary metric because:
   - it is computable on any corpus without ground-truth labels
   - it degrades honestly: adding tools the detector cannot model lowers it
   - it is the binding constraint. On live Claude Code sessions, Bash -> Bash
-    alone is 1,406 of 2,751 windows, all unknown -- more than half the
-    population is unanswerable, which no precision figure would reveal.
+    alone is 852 of 3,110 windows, all unknown, and unknown is 48.8% of the
+    population -- nearly half is unanswerable, which no precision figure would
+    reveal.
+
+  - it degrades when a claim is withdrawn, which is the point. Verifying the
+    Claude Code bindings by experiment cost 4.8 points (56.0% -> 51.2%): the
+    Write DEREFERENCE entry was fiction, and 149 dataflow edges had been
+    classifiable only through it. A metric that cannot fall when an assertion is
+    retracted is not measuring anything.
 
 Reported alongside, because coverage alone can be gamed by guessing:
 

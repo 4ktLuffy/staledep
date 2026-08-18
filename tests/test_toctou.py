@@ -756,3 +756,45 @@ def test_links_on_a_different_edge_do_not_strengthen_this_window():
     elsewhere = ProvenanceLink(90, "read_file", 91, "send_money",
                                "recipient", "DE89370400440532013000", rule="direct")
     assert evidence_tier(w, [elsewhere]) == "state"
+
+
+# ------------------------------------------------- claude_code, verified live
+def test_write_fails_safe_and_is_not_a_dereference():
+    """VERIFIED BY EXPERIMENT. Read a file, mutate it externally, then Write:
+    the harness aborts with "File has been modified since read". The binding said
+    DEREFERENCE, "overwrites whatever is there now, including changes made since
+    the Read" -- both halves wrong. A concurrent mutation cancels the write, it
+    does not redirect it."""
+    from staledep.binding import Bind, bind_of
+    from staledep.claudecode import register
+    register()
+    assert bind_of("claude_code", "Write", "workspace.files") is Bind.SNAPSHOT
+    assert bind_of("claude_code", "Edit", "workspace.files") is Bind.SNAPSHOT
+
+
+def test_untested_tools_are_unknown_rather_than_assumed():
+    """NotebookEdit and TodoWrite appear zero times in the live corpus, so their
+    bindings were never exercised. Untested is not the same as safe, and the
+    metric degrades honestly by admitting it."""
+    from staledep.binding import Bind, bind_of
+    from staledep.claudecode import register
+    register()
+    assert bind_of("claude_code", "NotebookEdit", "workspace.files") is Bind.UNKNOWN
+    assert bind_of("claude_code", "TodoWrite", "todo") is Bind.UNKNOWN
+
+
+def test_unknown_outranks_snapshot_when_resolving_a_dataflow_edge():
+    """The subtle consequence of the Write correction, pinned because it cost
+    4.8 points of the primary metric and was not obvious.
+
+    A `dataflow:X` pseudo-resource resolves through X's reads and takes the most
+    dangerous verdict. Bash reads {shell, workspace.files}. While workspace.files
+    claimed DEREFERENCE that outranked the `shell` UNKNOWN and the edge counted as
+    classified; with SNAPSHOT, UNKNOWN wins and it is honestly unclassifiable.
+    Coverage was inflated by the fiction, not by anything real."""
+    from staledep.binding import Bind, bind_of
+    from staledep.claudecode import register
+    register()
+    assert bind_of("claude_code", "Write", "dataflow:Bash") is Bind.UNKNOWN
+    # and a source whose reads are all modelled still classifies
+    assert bind_of("claude_code", "Write", "dataflow:Read") is not Bind.DEREFERENCE

@@ -262,9 +262,16 @@ the most useful thing here.
   operate on message content and cannot change the read/act structure of a
   benign trajectory. `tool_filter` moves the number by removing authority, which
   is least privilege, not a fake defense.
-- ~~"Banking high-risk exploitability is 0.0%"~~ — an artifact of classifying
-  binding **per tool**. `send_money` is snapshot for its copied recipient and
-  dereference for its live source account. The real figure is 2.0%.
+- ~~"Banking high-risk exploitability is 2.0%"~~ — I struck out an earlier 0.0%
+  as an artifact of per-tool binding and published 2.0% in its place. The 2.0%
+  was itself the artifact: every one of those trajectories was a
+  `get_balance → send_money` window resting on a CONTROL binding that
+  [does not exist in the code](#bindings-are-verified-against-the-source-not-asserted).
+  **Banking is 0.0%, and the original figure was right.** Per-tool binding *was*
+  a real bug — `send_money` is snapshot for its copied recipient and dereference
+  for its live source account — but that live IBAN is not attacker-writable, so
+  it was never what made banking nonzero. Two corrections in a row, each one
+  landing on a number rather than on the reasoning under it.
 - ~~"The first mutation sweep demonstrates pre-check poisoning"~~ — it measured
   a known-buggy AgentDojo utility check. The agent never issued a payment there
   was anything to redirect.

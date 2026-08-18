@@ -179,20 +179,26 @@ EDGE_BINDING.update({
         "workspace.files": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
     ("claude_code", "Write"): {
-        # path resolved at execution; no content precondition. Overwrites
-        # whatever is there now, including changes made since the Read.
-        "workspace.files": Bind.DEREFERENCE,
+        # Was DEREFERENCE, "overwrites whatever is there now, including changes
+        # made since the Read". REFUTED BY EXPERIMENT (see module docstring):
+        # Write is guarded by the same staleness check as Edit and aborts with
+        # "File has been modified since read". A concurrent mutation cannot
+        # redirect the write, it cancels it, so the edge is not movable.
+        "workspace.files": Bind.SNAPSHOT,
         "web": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
+    # NotebookEdit and TodoWrite appear ZERO times in the live corpus, so their
+    # bindings were asserted from the tool name and never exercised. Declaring
+    # them UNKNOWN is the honest state: untested is not the same as snapshot.
     ("claude_code", "NotebookEdit"): {
-        "workspace.files": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
+        "workspace.files": Bind.UNKNOWN, "*": Bind.UNKNOWN,
     },
     ("claude_code", "Bash"): {
         # arbitrary effect; cannot be classified from a signature
         "workspace.files": Bind.UNKNOWN, "shell": Bind.UNKNOWN,
         "web": Bind.UNKNOWN, "*": Bind.UNKNOWN,
     },
-    ("claude_code", "TodoWrite"): {"todo": Bind.DEREFERENCE, "*": Bind.UNKNOWN},
+    ("claude_code", "TodoWrite"): {"todo": Bind.UNKNOWN, "*": Bind.UNKNOWN},
 })
 
 
