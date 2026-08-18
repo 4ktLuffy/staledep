@@ -129,38 +129,7 @@ def windows_from_provenance(calls: list[str], links, suite: str,
     # read->send edge, inflating window counts threefold.
     seen: set[tuple[int, int]] = set()
     for link in links:
-        # FRESHNESS, applied here rather than in the tracers. A lineage link stays
-        # factually true after an intervening write -- the argument really did come
-        # from that output -- so the link is kept; what it no longer supports is a
-        # WINDOW. find_windows has invalidated stale checks for state dependencies
-        # all along and lineage did not, which is the same asymmetry that produced
-        # the last three bugs.
-        #
-        # Measured, 98 temporal windows rested on a superseded check, and 83 were
-        # one shape: get_day_calendar_events -> create_calendar_event ->
-        # create_calendar_event. The agent read the day once and booked twice,
-        # choosing the second slot from a reading its OWN first booking had
-        # invalidated. That is the agent stale against itself, not an attacker
-        # window. The first booking still forms a window; the second does not.
-        #
-        # CONSERVATIVE AND RESOURCE-GRANULAR, exactly as find_windows is: a write
-        # to `files` invalidates a check of `files` even if it touched a different
-        # file. It may therefore drop a window whose specific entity was untouched.
-        # Consistency with the state path is worth more than a precision the
-        # effect tables cannot express.
-        src_eff = table.get(link.source_tool)
-        if src_eff is not None:
-            superseded = False
-            for k in range(link.source_idx + 1, link.sink_idx):
-                if step_effects is not None and k < len(step_effects) and step_effects[k]:
-                    mid = step_effects[k]
-                else:
-                    mid = table.get(calls[k]) if k < len(calls) else None
-                if mid is not None and (mid.writes & src_eff.reads):
-                    superseded = True
-                    break
-            if superseded:
-                continue
+
         eff = None
         if step_effects is not None and link.sink_idx < len(step_effects) and step_effects[link.sink_idx]:
             eff = step_effects[link.sink_idx]

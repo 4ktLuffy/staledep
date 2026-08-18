@@ -103,13 +103,17 @@ DECLARED: dict[str, dict[str, str]] = {
         "errored-source": "yes",
         "nearest-source": "yes",
         "supersession": (
-            "OPEN -- not implemented, and not yet decided. Measured: 195 of 5389 "
-            "links (3.6%) have their source resource overwritten inside the "
-            "window, 98 of which back a temporal window. Unlike a state check, a "
-            "lineage link stays factually true after an overwrite -- the argument "
-            "really did come from that output -- and acting on the stale value is "
-            "arguably the race itself rather than a reason to drop it. Recorded "
-            "as undecided rather than quietly absent."
+            "N/A at resource granularity -- RESOLVED by hand-classifying all 98 "
+            "affected windows, and the categories differ, so no blanket rule is "
+            "correct. 83 were create_calendar_event, where the sink does not "
+            "depend on calendar state at all: that is a BINDING error (now "
+            "SNAPSHOT), not a freshness one. The other 15 were "
+            "create_file -> share_file(file_id=26), and create_file allocates "
+            "max(existing)+1, so it CANNOT change what id 26 resolves to -- those "
+            "windows are genuine and a resource-granular rule wrongly deleted "
+            "them. Entity-granular supersession would be correct but the effect "
+            "tables model resources, not entities, so it is not expressible here. "
+            "A blanket rule was implemented and reverted; see the ledger."
         ),
     },
     "numeric.trace_numeric": {
@@ -117,7 +121,7 @@ DECLARED: dict[str, dict[str, str]] = {
         "same-turn": "yes",
         "errored-source": "yes",
         "nearest-source": "yes",
-        "supersession": "OPEN -- same question as lexical lineage, same measurement.",
+        "supersession": "N/A at resource granularity -- same resolution as lexical lineage.",
     },
     "absence.trace_absence": {
         "tuple-input": "yes",

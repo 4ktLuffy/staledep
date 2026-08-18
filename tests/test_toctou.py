@@ -946,27 +946,41 @@ def test_a_later_successful_read_cancels_the_absence():
     assert len(trace_absence(never_found)) == 1, "check-then-create is still a race"
 
 
-def test_an_intervening_write_supersedes_a_lineage_check():
-    """Resolved the OPEN divergence: find_windows had invalidated stale checks
-    for state dependencies all along, and lineage did not.
+def test_no_blanket_supersession_rule_for_lineage_the_categories_differ():
+    """A blanket resource-granular rule was implemented, shipped, and REVERTED.
 
-    Measured, 98 temporal windows rested on a superseded check and 83 were one
-    shape -- get_day_calendar_events, then create_calendar_event twice. The agent
-    read the day once and booked twice, choosing the second slot from a reading
-    its OWN first booking had invalidated. That is the agent stale against
-    itself, not an attacker window.
+    All 98 affected windows were classified by hand and they are not one thing:
 
-    Applied at window formation, not in the tracer: the link stays factually
-    true (the value did come from that output); what it no longer supports is a
-    window. The first booking still forms one."""
-    links = [
-        ProvenanceLink(0, "get_day_calendar_events", 1, "create_calendar_event",
-                       "start_time", "2024-05-19 16:00"),
-        ProvenanceLink(0, "get_day_calendar_events", 2, "create_calendar_event",
-                       "start_time", "2024-05-19 17:00"),
-    ]
-    calls = ["get_day_calendar_events", "create_calendar_event", "create_calendar_event"]
+      83  get_day_calendar_events -> create_calendar_event -> create_calendar_event
+          create_event allocates a fresh id and assigns; it never consults
+          existing events. The sink has NO dependence on calendar state, so this
+          is a BINDING error -- now SNAPSHOT -- not a freshness one.
+
+      15  search_files -> create_file -> share_file(file_id="26")
+          create_file allocates max(existing)+1, so it CANNOT change what id 26
+          resolves to. These windows are genuine, and the blanket rule deleted
+          them for a reason that does not apply.
+
+    Entity-granular supersession would be right, but the effect tables model
+    RESOURCES, not entities, so it is not expressible. Recorded as N/A with the
+    reason rather than implemented wrongly."""
+    links = [ProvenanceLink(0, "search_files", 2, "share_file", "file_id", "26")]
+    calls = ["search_files", "create_file", "share_file"]
     w = windows_from_provenance(calls, links, "workspace")
-    assert [(x.check_idx, x.use_idx) for x in w] == [(0, 1)], (
-        "the second booking rests on a reading the first booking invalidated"
+    assert [(x.check_idx, x.use_idx) for x in w] == [(0, 2)], (
+        "create_file allocates a fresh id and cannot supersede a check of id 26"
     )
+
+
+def test_create_calendar_event_does_not_gate_on_the_calendar():
+    """VERIFIED FICTION, and the real cause of 83 of the 98. The binding said
+    CONTROL, "slot-free check gates the booking". CalendarClient.create_event
+    allocates a fresh id and assigns self.events[id_] = event -- no overlap
+    check, no availability test. Mutating the calendar cannot change what gets
+    booked.
+
+    tests/test_binding_matches_source.py passed this: the body contains
+    `calendar.create_event(...)`, and a delegation MENTION is not evidence of
+    gating. A false negative in the checker, not a gap in the corpus."""
+    from staledep.binding import Bind, bind_of
+    assert bind_of("workspace", "create_calendar_event", "calendar") is Bind.SNAPSHOT

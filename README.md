@@ -74,15 +74,16 @@ rather than collapsed into one number:
 | eligible trajectories | 2540 | 100.0% |
 | broad candidates (the original proxy) | 1152 | 45.4% |
 | after same-turn exclusion | 1151 | 45.3% |
-| after failed-sink exclusion | 1106 | 43.5% |
-| snapshot-only flows | 508 | 20.0% |
-| **temporal (dereference/control)** | **590** | **23.2%** |
-| + attacker-writable | 311 | 12.2% |
-| + high-risk committed sink | 41 | 1.6% |
+| after failed-sink exclusion | 1130 | 44.5% |
+| snapshot-only flows | 652 | 25.7% |
+| **temporal (dereference/control)** | **472** | **18.6%** |
+| + attacker-writable | 193 | 7.6% |
+| + high-risk committed sink | 56 | 2.2% |
 
-> **Read the last row as 3 task shapes, not 41 findings.** The 41 are
-> model × task replays over a **single** workspace fixture: 3 unique
-> `(suite, task)` shapes across 23 model/config pairs, one of them a singleton.
+> **Read the last row as 5 task shapes, not 56 findings.** The 56 are
+> model × task replays over a **single** workspace fixture: 5 unique
+> `(suite, task)` shapes, drawn from 29 model/config pairs of which 23
+> contribute at least one, and one shape is a singleton.
 > The unit of independent evidence is the shape; the models are replicates.
 > Reporting 41 implies 41 independent observations and overstates by ~14×.
 
@@ -92,8 +93,7 @@ danger set**. Folding it into the funnel made a later stage larger than an earli
 one, and a funnel that grows is not a funnel.
 
 The last stage was **92 until the binding tables were checked against AgentDojo's
-source**, then 56, and 41 once lineage windows inherited the freshness rule the
-state path always had; 36 of those rested on dependencies the implementations do not have. See
+source**; 36 of those rested on dependencies the implementations do not have. See
 *Bindings are verified against the source* below.
 
 **Same-turn exclusion removes only 1 trajectory.** The defect is real and

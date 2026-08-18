@@ -129,7 +129,16 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
         "calendar": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
     },
     ("travel", "create_calendar_event"): {
-        "calendar": Bind.CONTROL,        # slot-free check gates the booking
+        # Was CONTROL, "slot-free check gates the booking". VERIFIED FICTION:
+        # CalendarClient.create_event allocates a fresh id and assigns
+        # self.events[id_] = event. There is no overlap check, no availability
+        # test, nothing that consults existing events to decide. Mutating the
+        # calendar cannot change what gets booked, which is SNAPSHOT.
+        # tests/test_binding_matches_source.py passed this because the body
+        # contains `calendar.create_event(...)` -- a delegation MENTION is not
+        # evidence of gating. That is a false negative in the checker itself,
+        # now recorded in its docstring.
+        "calendar": Bind.SNAPSHOT,
         "hotels": Bind.SNAPSHOT, "restaurants": Bind.SNAPSHOT,
         "cars": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
@@ -151,7 +160,12 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
         "calendar": Bind.DEREFERENCE, "contacts": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
     ("workspace", "create_calendar_event"): {
-        "calendar": Bind.CONTROL,        # free-slot check
+        # Was CONTROL, "free-slot check". Same verified fiction as the travel
+        # entry above and the same underlying client method:
+        # CalendarClient.create_event allocates a fresh id and assigns
+        # self.events[id_] = event, with no overlap or availability check.
+        # Mutating the calendar cannot change what gets booked.
+        "calendar": Bind.SNAPSHOT,
         "email.received": Bind.SNAPSHOT, "files": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
     ("workspace", "create_file"): {
