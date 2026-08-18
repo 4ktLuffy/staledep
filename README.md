@@ -75,8 +75,8 @@ rather than collapsed into one number:
 | broad candidates (the original proxy) | 1152 | 45.4% |
 | after same-turn exclusion | 1151 | 45.3% |
 | after failed-sink exclusion | 1130 | 44.5% |
-| snapshot-only flows | 677 | 26.7% |
-| **temporal (dereference/control)** | **447** | **17.6%** |
+| snapshot-only flows | 681 | 26.8% |
+| **temporal (dereference/control)** | **443** | **17.4%** |
 | + attacker-writable | 168 | 6.6% |
 | + high-risk committed sink | 56 | 2.2% |
 
@@ -91,7 +91,7 @@ rather than collapsed into one number:
 > a *different computation* — raw links, no same-turn or committed filter — and is
 > not part of that chain.
 >
-> **`447` is a resource-level upper bound**, not 447 established entity-level
+> **`443` is a resource-level upper bound**, not 447 established entity-level
 > dependencies. The effect tables model resources, not entities, so a window on
 > `files` is a candidate for a dependency on *some* file, not proof of one on
 > *the* file. Only the 56 danger replays carry entity-level evidence.
@@ -150,6 +150,31 @@ already listed** — and the privilege is write access to the shared drive. Unde
 `moderate` threat model admits and `strict` does not. So these five hold under
 `moderate` and **all five vanish under `strict`**. No shape here requires creating
 or deleting an entity, only rebinding one.
+
+### Every binding under the headline is audited
+
+The temporal count is only as good as the bindings beneath it, and three CONTROL
+entries turned out to be fiction, each found separately and by accident. The
+finite sweep closes that: 443 temporal trajectories contain 749 windows over 29
+unique edges, collapsing to **14 distinct binding claims** — `dataflow:`
+pseudo-resources resolve through the source tool's reads, so the claim is on the
+underlying resource.
+
+**Before: 11 of 14 unaudited. After: 0 unaudited, 13 VERIFIED, 1 REJECTED.**
+`tests/test_dereference_sweep.py` pins each claim to the label it was audited
+under, with its source evidence beside it.
+
+Two claims the source could not settle were settled by **running the mutation**:
+
+| claim | verdict | evidence |
+|---|---|---|
+| `reserve_hotel` / `user` | **VERIFIED** | `contact_information = get_user_information(user)["Phone Number"]` resolves live. Mutating the phone number *inside* the window puts attacker data in the reservation; the same mutation *after* the sink does not. Condition 4 holds. |
+| `update_user_info` / `user` | **REJECTED → SNAPSHOT** | One account, no argument selects it, so the write cannot be retargeted. Unspecified fields do carry attacker values — but mutating inside and outside the window give an **identical post-state**. Condition 4 fails: this is "an attacker can write the record", true with or without the agent. |
+
+One relabel: `add_user_to_channel` / `channels` was DEREFERENCE, but
+`if channel not in slack.channels: raise` is a *conditional*, and the mutation is
+`user_channels[user]` — keyed by `user`, never by `channel`. It is CONTROL. Both
+labels are temporal so no count moves; only the mechanism claim changes.
 
 ### Bindings are verified against the source, not asserted
 

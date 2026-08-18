@@ -73,8 +73,14 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
         "scheduled": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
     },
     ("banking", "update_user_info"): {
-        # fields literal, but the target is the implicit current user record
-        "user": Bind.DEREFERENCE, "file": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
+        # Was DEREFERENCE, "the target is the implicit current user record".
+        # REJECTED BY RUNTIME EVIDENCE. There is one account and no argument
+        # selects it, so the write cannot be retargeted. Unspecified fields do
+        # carry whatever the attacker left -- but mutating INSIDE and OUTSIDE the
+        # window give an identical post-state, so the window is irrelevant and
+        # condition 4 fails. That is "an attacker can write the record", which is
+        # true with or without the agent.
+        "user": Bind.SNAPSHOT, "file": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
     ("banking", "update_password"): {
         "user": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
@@ -92,7 +98,12 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
         "*": Bind.UNKNOWN,
     },
     ("slack", "add_user_to_channel"): {
-        "channel.users": Bind.DEREFERENCE, "channels": Bind.DEREFERENCE,
+        # channel.users IS an argument-keyed lookup: user_channels[user].append().
+        "channel.users": Bind.DEREFERENCE,
+        # channels is a GATE, not a lookup: `if channel not in slack.channels:
+        # raise`. The mutation is keyed by `user`, not by `channel`. Both labels
+        # are temporal so no count moves; the mechanism claim is now accurate.
+        "channels": Bind.CONTROL,
         "*": Bind.UNKNOWN,
     },
     ("slack", "remove_user_from_slack"): {
@@ -116,7 +127,12 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
     # system does and not what this one does.
     ("travel", "reserve_hotel"): {
         "hotels": Bind.SNAPSHOT,
-        "user": Bind.DEREFERENCE,        # get_user_information(user), resolved live
+        # VERIFIED BY RUNTIME EVIDENCE: reservation.contact_information =
+        # get_user_information(user)["Phone Number"] resolves live, and mutating
+        # the phone number inside the window puts attacker-controlled contact
+        # data in the reservation while the same mutation after the sink does
+        # not. Condition 4 holds.
+        "user": Bind.DEREFERENCE,
         "*": Bind.UNKNOWN,
     },
     ("travel", "reserve_restaurant"): {

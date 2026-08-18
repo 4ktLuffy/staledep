@@ -37,7 +37,7 @@ PINNED = "089ed468cf3ed0322acc66b0211f26d9d90dbf60"
 #: These are a manifest: changing them requires editing this file, which is the
 #: explicit review step. A count that moves for a legitimate reason (a binding
 #: added, a tool declared) fails here first and is updated deliberately.
-EXPECTED_BINDING_CASES = 23   # 24 before create_file CONTROL -> SNAPSHOT
+EXPECTED_BINDING_CASES = 22   # 23 before update_user_info.user -> SNAPSHOT
 EXPECTED_EFFECT_CASES = 63
 
 #: Collection accounting, so the two figures cannot be mistaken for one another.
