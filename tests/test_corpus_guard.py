@@ -134,8 +134,13 @@ def test_exactly_one_skip_in_a_full_corpus_run():
     if not REQUIRED:
         return
     import subprocess
+    import sys
+    # sys.executable, not "python": the bare name does not exist on macOS with a
+    # venv and the guard silently FileNotFound-ed locally while passing on CI,
+    # where setup-python provides it. Same interpreter as the running suite is
+    # also the only correct choice -- a different one could collect differently.
     out = subprocess.run(
-        ["python", "-m", "pytest", "-q", "-rs", "--co", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", "-q", "-rs", "--co", "-p", "no:cacheprovider"],
         cwd=str(ROOT), capture_output=True, text=True)
     assert out.returncode == 0, out.stdout[-400:]
     assert f"{EXPECTED_COLLECTED_WITH_CORPUS} tests collected" in out.stdout, (
