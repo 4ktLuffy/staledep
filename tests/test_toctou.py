@@ -16,7 +16,12 @@ from staledep.provenance import (
     _tokens,
     trace_from_log,
 )
-from staledep.toctou import classify_task, evidence_tier, find_windows
+from staledep.toctou import (
+    classify_task,
+    evidence_tier,
+    find_windows,
+    windows_from_provenance,
+)
 
 
 # --------------------------------------------------------------- state typing
@@ -939,3 +944,29 @@ def test_a_later_successful_read_cancels_the_absence():
         ("create_file", {"filename": "grocery_list.txt"}, "created"),
     ]
     assert len(trace_absence(never_found)) == 1, "check-then-create is still a race"
+
+
+def test_an_intervening_write_supersedes_a_lineage_check():
+    """Resolved the OPEN divergence: find_windows had invalidated stale checks
+    for state dependencies all along, and lineage did not.
+
+    Measured, 98 temporal windows rested on a superseded check and 83 were one
+    shape -- get_day_calendar_events, then create_calendar_event twice. The agent
+    read the day once and booked twice, choosing the second slot from a reading
+    its OWN first booking had invalidated. That is the agent stale against
+    itself, not an attacker window.
+
+    Applied at window formation, not in the tracer: the link stays factually
+    true (the value did come from that output); what it no longer supports is a
+    window. The first booking still forms one."""
+    links = [
+        ProvenanceLink(0, "get_day_calendar_events", 1, "create_calendar_event",
+                       "start_time", "2024-05-19 16:00"),
+        ProvenanceLink(0, "get_day_calendar_events", 2, "create_calendar_event",
+                       "start_time", "2024-05-19 17:00"),
+    ]
+    calls = ["get_day_calendar_events", "create_calendar_event", "create_calendar_event"]
+    w = windows_from_provenance(calls, links, "workspace")
+    assert [(x.check_idx, x.use_idx) for x in w] == [(0, 1)], (
+        "the second booking rests on a reading the first booking invalidated"
+    )

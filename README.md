@@ -74,11 +74,17 @@ rather than collapsed into one number:
 | eligible trajectories | 2540 | 100.0% |
 | broad candidates (the original proxy) | 1152 | 45.4% |
 | after same-turn exclusion | 1151 | 45.3% |
-| after failed-sink exclusion | 1130 | 44.5% |
+| after failed-sink exclusion | 1106 | 43.5% |
 | snapshot-only flows | 508 | 20.0% |
-| **temporal (dereference/control)** | **616** | **24.3%** |
-| + attacker-writable | 337 | 13.3% |
-| + high-risk committed sink | 56 | 2.2% |
+| **temporal (dereference/control)** | **590** | **23.2%** |
+| + attacker-writable | 311 | 12.2% |
+| + high-risk committed sink | 41 | 1.6% |
+
+> **Read the last row as 3 task shapes, not 41 findings.** The 41 are
+> model × task replays over a **single** workspace fixture: 3 unique
+> `(suite, task)` shapes across 23 model/config pairs, one of them a singleton.
+> The unit of independent evidence is the shape; the models are replicates.
+> Reporting 41 implies 41 independent observations and overstates by ~14×.
 
 **Negative evidence is reported outside this funnel**, because it is a new signal
 rather than a filter: 111 trajectories (4.4%), 43 newly temporal, **0 newly in the
@@ -86,7 +92,8 @@ danger set**. Folding it into the funnel made a later stage larger than an earli
 one, and a funnel that grows is not a funnel.
 
 The last stage was **92 until the binding tables were checked against AgentDojo's
-source**; 36 of those rested on dependencies the implementations do not have. See
+source**, then 56, and 41 once lineage windows inherited the freshness rule the
+state path always had; 36 of those rested on dependencies the implementations do not have. See
 *Bindings are verified against the source* below.
 
 **Same-turn exclusion removes only 1 trajectory.** The defect is real and
@@ -105,24 +112,35 @@ and **dereference in 48**. The unit is
 `(observed resource → sink)`, classified snapshot / dereference-at-use /
 control-dependent / unknown. `unknown` is never folded into the exploitable set.
 
-### The 56-trajectory danger set, audited exhaustively
+### The danger set: 3 task shapes, 1 environment, 23 model replays
 
-Not sampled — every entry was reproduced. **The 56 are 5 distinct (suite, task)
-shapes across 27 models, not 56 independent findings**, and after the binding
-correction they are *entirely workspace*: one coherent phenomenon rather than a
-mixed bag.
+Not sampled — every entry reproduced. **The headline unit is the task shape.**
+41 replays reduce to 3 unique `(suite, task)` shapes over a single workspace
+fixture, and one of those is a singleton seen in exactly one model.
 
-| pattern | windows | binding | verdict |
-|---|---|---|---|
-| `list_files → delete_file(file_id)` | 39 | dereference | genuine — `files.pop(file_id)` resolves live; the wrong file is deleted |
-| `search_files_by_filename → share_file` | 13 | dereference | genuine — wrong file shared externally |
-| `search_files → share_file` | 9 | dereference | genuine |
-| `list_files → share_file` | 7 | dereference | genuine |
-| `get_file_by_id → share_file` | 3 | dereference | genuine |
-| `search_files_by_filename → delete_file` | 3 | dereference | genuine |
+| shape | replays | models |
+|---|---|---|
+| `workspace/user_task_38` | 21 | 21 |
+| `workspace/user_task_35` | 19 | 19 |
+| `workspace/user_task_27` | 1 | 1 |
 
-The travel price races and the banking balance gates that used to fill this table
-are gone. They were never in the code — see below.
+The window patterns inside them, all live file-handle dereference:
+
+| pattern | windows | verdict |
+|---|---|---|
+| `list_files → delete_file(file_id)` | 39 | genuine — `files.pop(file_id)` resolves live, **rebinding executed** |
+| `search_files_by_filename → share_file` | 12 | genuine — **rebinding executed**, ACL lands on the repointed file |
+| `list_files → share_file` | 6 | genuine, same mechanism |
+| `search_files_by_filename → delete_file` | 3 | genuine, same mechanism |
+| `search_files → delete_file` | 1 | genuine, same mechanism |
+
+The two shapes that replicate broadly are exactly the two with an executed
+rebinding demonstration below. The travel price races and banking balance gates
+that once filled this table are gone; they were never in the code.
+
+**95.1% of the set now rests on effect typing alone** (`state` tier) and just 2
+replays on lexical evidence — so the headline barely depends on the matcher at
+all, which is the opposite of where this started.
 
 ### Bindings are verified against the source, not asserted
 
