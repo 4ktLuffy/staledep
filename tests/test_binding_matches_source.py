@@ -185,3 +185,96 @@ def test_control_bindings_are_either_conditional_backed_or_attested():
         f"CONTROL with no conditional in the body and no attestation: "
         f"{unjustified}. That is the create_calendar_event failure shape."
     )
+
+
+# ------------------------------------------------- adversarial checker fixtures
+#: Hand-written bodies that probe exactly what the checker can and cannot prove.
+#: Written because the checker's one demonstrated false negative was found by
+#: accident, four iterations after it shipped.
+_FIXTURES = {
+    "irrelevant_conditional_plus_delegation": '''
+        if not title:
+            raise ValueError("title required")
+        return calendar.create_event(title, start)
+    ''',
+    "lookup_keyed_by_the_wrong_argument": '''
+        return cloud_drive.files[owner_email].content
+    ''',
+    "lookup_only_after_the_sink": '''
+        result = cloud_drive.create_file(filename, content)
+        existing = cloud_drive.files.get(file_id)
+        return result, existing
+    ''',
+    "real_resource_derived_conditional": '''
+        if user in slack.users:
+            raise ValueError("already a member")
+        slack.users.append(user)
+    ''',
+    "real_argument_keyed_dereference": '''
+        file = cloud_drive.files.pop(file_id)
+        return file
+    ''',
+}
+
+
+def _mentions(body, symbol):
+    """What the current checker actually tests: does the body name the resource."""
+    return symbol in body
+
+
+def _has_resource_conditional(body, symbol):
+    """The bar for CONTROL: a conditional reached from the resource."""
+    import re as _re
+    for line in body.splitlines():
+        if _re.search(r"\b(if|while|assert)\b", line) and symbol in line:
+            return True
+    return False
+
+
+def _has_argument_keyed_lookup(body, symbol, argument):
+    """The bar for DEREFERENCE: a lookup into the resource keyed by an argument."""
+    import re as _re
+    return bool(_re.search(rf"{_re.escape(symbol)}[\.\[][^\n]*{_re.escape(argument)}", body)
+                or _re.search(rf"{_re.escape(symbol)}\[[^\]]*{_re.escape(argument)}", body))
+
+
+def test_mention_alone_cannot_distinguish_any_of_the_five():
+    """WHAT THE CHECKER PROVES, stated as a failure. Every fixture mentions its
+    resource, including the three that establish nothing -- so the mention test
+    is necessary and nowhere near sufficient. This is the create_calendar_event
+    failure in miniature."""
+    assert _mentions(_FIXTURES["irrelevant_conditional_plus_delegation"], "calendar")
+    assert _mentions(_FIXTURES["lookup_only_after_the_sink"], "cloud_drive")
+    assert _mentions(_FIXTURES["real_argument_keyed_dereference"], "cloud_drive")
+
+
+def test_the_control_bar_accepts_only_a_resource_derived_conditional():
+    real = _FIXTURES["real_resource_derived_conditional"]
+    fake = _FIXTURES["irrelevant_conditional_plus_delegation"]
+    assert _has_resource_conditional(real, "slack.users")
+    assert not _has_resource_conditional(fake, "calendar"), (
+        "`if not title` is a conditional, but not one reached from the resource"
+    )
+
+
+def test_the_dereference_bar_needs_the_right_argument_as_the_key():
+    real = _FIXTURES["real_argument_keyed_dereference"]
+    wrong = _FIXTURES["lookup_keyed_by_the_wrong_argument"]
+    assert _has_argument_keyed_lookup(real, "cloud_drive", "file_id")
+    assert not _has_argument_keyed_lookup(wrong, "cloud_drive", "file_id"), (
+        "files[owner_email] is a lookup, but not keyed by the argument in question"
+    )
+
+
+def test_a_lookup_after_the_sink_is_not_a_dependency_and_needs_ordering():
+    """The limit this fixture proves: the bar is textual and order-blind. Here
+    the lookup follows create_file, so the sink cannot depend on it -- and the
+    regex cannot tell. This case requires runtime evidence or an attestation,
+    which is precisely why ATTESTED exists."""
+    body = _FIXTURES["lookup_only_after_the_sink"]
+    assert _has_argument_keyed_lookup(body, "cloud_drive", "file_id"), (
+        "the textual bar passes here, and it should not -- ordering is invisible"
+    )
+    sink_at = body.index("create_file")
+    lookup_at = body.index("files.get")
+    assert sink_at < lookup_at, "the lookup happens after the sink has committed"

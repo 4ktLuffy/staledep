@@ -39,6 +39,22 @@ PINNED = "089ed468cf3ed0322acc66b0211f26d9d90dbf60"
 #: added, a tool declared) fails here first and is updated deliberately.
 EXPECTED_BINDING_CASES = 23   # 24 before create_file CONTROL -> SNAPSHOT
 EXPECTED_EFFECT_CASES = 63
+
+#: Collection accounting, so the two figures cannot be mistaken for one another.
+#: Adding the corpus moves collection 147 -> 209, a difference of 62, and ALL 62
+#: come from one test: test_declared_writer_status_matches_the_source goes from a
+#: single empty-parametrize placeholder to 63 cases (63 - 1 = 62). The 23 binding
+#: cases are built from EDGE_BINDING rather than the corpus, so they always
+#: collect and SKIP visibly instead of vanishing.
+EXPECTED_COLLECTED_WITH_CORPUS = 209
+EXPECTED_COLLECTED_WITHOUT_CORPUS = 147
+
+#: The ONLY skip permitted in a full corpus run. Any other skip means a test
+#: silently stopped covering something.
+EXPECTED_SKIPS = {
+    ("test_binding_matches_source.py",
+     "no source symbol mapped for workspace/email.received"),
+}
 REQUIRED = os.environ.get("STALEDEP_REQUIRE_CORPUS") == "1"
 
 
@@ -106,3 +122,28 @@ def test_exploitability_fixtures_load():
     files = data.get("initial_files")
     assert files, f"cloud_drive fixture has no initial_files; keys={sorted(data)}"
     assert len(files) >= 5, f"only {len(files)} files; the demo indexes listing[3]"
+
+
+def test_exactly_one_skip_in_a_full_corpus_run():
+    """A skip is a test that stopped covering something. One is expected and
+    named; a second means coverage was lost silently, which is the failure this
+    whole guard exists to prevent."""
+    if not REQUIRED:
+        return
+    import subprocess
+    out = subprocess.run(
+        ["python", "-m", "pytest", "-q", "-rs", "--co", "-p", "no:cacheprovider"],
+        cwd=str(ROOT), capture_output=True, text=True)
+    assert out.returncode == 0, out.stdout[-400:]
+    assert f"{EXPECTED_COLLECTED_WITH_CORPUS} tests collected" in out.stdout, (
+        f"expected exactly {EXPECTED_COLLECTED_WITH_CORPUS} collected; "
+        f"tail: {out.stdout.strip().splitlines()[-1]}"
+    )
+
+
+def test_collection_accounting_is_recorded_not_inferred():
+    """147 -> 209 is 62 vanished items, all from ONE test going 1 -> 63. The
+    manifest's 23 and 63 are CASE counts, not collection deltas; recording the
+    mapping stops them being read as the same quantity."""
+    assert EXPECTED_COLLECTED_WITH_CORPUS - EXPECTED_COLLECTED_WITHOUT_CORPUS == 62
+    assert EXPECTED_EFFECT_CASES - 1 == 62, "63 cases replace 1 empty placeholder"
