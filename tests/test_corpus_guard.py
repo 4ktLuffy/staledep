@@ -41,13 +41,16 @@ EXPECTED_BINDING_CASES = 22   # 23 before update_user_info.user -> SNAPSHOT
 EXPECTED_EFFECT_CASES = 63
 
 #: Collection accounting, so the two figures cannot be mistaken for one another.
-#: Adding the corpus moves collection 147 -> 209, a difference of 62, and ALL 62
+#: Adding the corpus moves collection 170 -> 232, a difference of 62, and ALL 62
 #: come from one test: test_declared_writer_status_matches_the_source goes from a
-#: single empty-parametrize placeholder to 63 cases (63 - 1 = 62). The 23 binding
+#: single empty-parametrize placeholder to 63 cases (63 - 1 = 62). The 22 binding
 #: cases are built from EDGE_BINDING rather than the corpus, so they always
 #: collect and SKIP visibly instead of vanishing.
-EXPECTED_COLLECTED_WITH_CORPUS = 209
-EXPECTED_COLLECTED_WITHOUT_CORPUS = 147
+#: Updated deliberately when the suite grows -- this assertion firing IS the
+#: review step, and it fired on the first real CI run because tests added after
+#: the constant was written pushed collection from 209 to 232.
+EXPECTED_COLLECTED_WITH_CORPUS = 232
+EXPECTED_COLLECTED_WITHOUT_CORPUS = 170
 
 #: The ONLY skip permitted in a full corpus run. Any other skip means a test
 #: silently stopped covering something.
