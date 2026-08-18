@@ -150,6 +150,35 @@ AgentDojo declares state as `Depends("car_rental")` *parameters*, so every tool
 names its own resource in its signature whether or not it reads it. It checks
 bodies only.
 
+### Effects are checked against the source too, with the checker's own limits declared
+
+Bindings classify windows that already exist; `effects.py` decides whether a window
+**forms**, so a wrong entry here can *hide* one as well as invent one — a tool
+declared read-only never invalidates an earlier check, so a stale check keeps
+being credited. `tests/test_effects_match_source.py` compares every declared
+writer against the tool body.
+
+**The declarations survived.** Every apparent discrepancy was a bug in the checker,
+which is worth stating plainly because it happened three times and each version
+produced confident false findings first:
+
+| the analyser did this | it reported |
+|---|---|
+| stopped the name walk at a `Subscript` | `add_user_to_channel` writes nothing |
+| counted locals (`users = []; users.append(x)`) | read-only tools are writers |
+| stopped at the call site, not the client method | **ten** tools "declared writer but writes nothing" |
+
+Two exempt classes are listed rather than silently passed. **Alias mutators**
+(`file = get_file_by_id(id); file.shared_with[e] = p`) write through an object
+fetched from state, invisible to root-based tracking; each was read by hand.
+**Log-only writes**: `get_webpage` does `web.web_requests.append(url)`, a request
+log, not page content — declaring it a writer of `web` would invalidate every
+earlier content check and delete genuine windows.
+
+Verifying `share_file` in passing confirmed the second-largest danger pattern:
+`cloud_drive.get_file_by_id(file_id)` then `file.shared_with[email] = permission`
+is live resolution plus an ACL mutation, so those 32 windows are genuine.
+
 **Recall fell too, correctly.** The seeded `control-dependence` case was being
 caught *only* by the fictional balance gate. `seeded.py` has always filed it under
 "expected: MISSED (blind spots)" — *"the read decides WHETHER to pay, not what to

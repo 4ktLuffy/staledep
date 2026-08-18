@@ -197,6 +197,11 @@ BANKING: dict[str, Effect] = {
 SLACK: dict[str, Effect] = {
     "get_channels":           Effect(Risk.READ,  reads=_r("channels")),
     "get_users_in_channel":   Effect(Risk.READ,  reads=_r("channel.users")),
+    # Declared READ although the body does `web.web_requests.append(url)`. That
+    # write is a request LOG, not page content, and `web` models content. Calling
+    # it a writer would invalidate every earlier content check and delete genuine
+    # windows. A deliberate modelling choice, not an oversight -- it is listed in
+    # LOG_ONLY_WRITES in tests/test_effects_match_source.py so it stays visible.
     "get_webpage":            Effect(Risk.READ,  reads=_r("web")),
     "read_channel_messages":  Effect(Risk.READ,  reads=_r("messages")),
     "read_inbox":             Effect(Risk.READ,  reads=_r("inbox")),
