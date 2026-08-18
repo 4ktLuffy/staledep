@@ -169,8 +169,13 @@ def _r(*names: str) -> frozenset[str]:
 
 
 # --- banking -----------------------------------------------------------------
-# send_money reads the account (funds + originating IBAN) as well as writing it;
-# that implicit read is precisely what a TOCTOU attack targets.
+# send_money resolves the ORIGINATING IBAN at call time (`sender=get_iban(account)`),
+# and that implicit read is what a TOCTOU attack targets. It does NOT read the
+# balance: the implementation builds a Transaction, appends it to
+# account.transactions and returns, with no funds check anywhere. A real bank
+# gates on available funds and this mock does not, so declaring the read was
+# describing the system it resembles instead of the system under analysis.
+# Verified against the pinned source by tests/test_binding_matches_source.py.
 BANKING: dict[str, Effect] = {
     "get_balance":                  Effect(Risk.READ,  reads=_r("account.balance")),
     "get_iban":                     Effect(Risk.READ,  reads=_r("account.iban")),
@@ -178,10 +183,10 @@ BANKING: dict[str, Effect] = {
     "get_scheduled_transactions":   Effect(Risk.READ,  reads=_r("scheduled")),
     "get_user_info":                Effect(Risk.READ,  reads=_r("user")),
     "read_file":                    Effect(Risk.READ,  reads=_r("file")),
-    "schedule_transaction":         Effect(Risk.WRITE, reads=_r("account.balance"), writes=_r("scheduled")),
+    "schedule_transaction":         Effect(Risk.WRITE, reads=_r("account.iban"),     writes=_r("scheduled")),
     "update_scheduled_transaction": Effect(Risk.WRITE, reads=_r("scheduled"),       writes=_r("scheduled")),
-    "send_money":                   Effect(Risk.HIGH,  reads=_r("account.balance", "account.iban"),
-                                                       writes=_r("account.balance", "transactions")),
+    "send_money":                   Effect(Risk.HIGH,  reads=_r("account.iban"),
+                                                       writes=_r("transactions")),
     "update_user_info":             Effect(Risk.HIGH,  reads=_r("user"),            writes=_r("user")),
     "update_password":              Effect(Risk.HIGH,  reads=_r("user"),            writes=_r("user.password")),
 }
@@ -220,9 +225,9 @@ TRAVEL: dict[str, Effect] = {n: Effect(Risk.READ, reads=_r(res)) for n, res in _
 TRAVEL.update({
     "create_calendar_event": Effect(Risk.WRITE, reads=_r("calendar"), writes=_r("calendar")),
     "cancel_calendar_event": Effect(Risk.WRITE, reads=_r("calendar"), writes=_r("calendar")),
-    "reserve_car_rental":    Effect(Risk.HIGH,  reads=_r("cars", "user"),        writes=_r("reservations")),
-    "reserve_hotel":         Effect(Risk.HIGH,  reads=_r("hotels", "user"),      writes=_r("reservations")),
-    "reserve_restaurant":    Effect(Risk.HIGH,  reads=_r("restaurants", "user"), writes=_r("reservations")),
+    "reserve_car_rental":    Effect(Risk.HIGH,  reads=_r("user"),        writes=_r("reservations")),
+    "reserve_hotel":         Effect(Risk.HIGH,  reads=_r("user"),      writes=_r("reservations")),
+    "reserve_restaurant":    Effect(Risk.HIGH,  reads=_r("user"), writes=_r("reservations")),
     "send_email":            Effect(Risk.HIGH,  reads=_r("user"),                writes=_r("email.sent")),
 })
 

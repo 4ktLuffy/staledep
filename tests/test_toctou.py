@@ -213,9 +213,15 @@ def test_seeded_recall_is_pinned():
         if classify_task([n for n, _, _ in c.steps], c.suite,
                          links=trace_from_log(c.steps))["candidate"]
     }
+    # control-dependence dropped out when the fictional balance gate was removed.
+    # seeded.py has always filed it under "expected: MISSED (blind spots)" -- "the
+    # read decides WHETHER to pay, not what to pay. No value flows." It was being
+    # caught only because send_money was declared CONTROL on account.balance, a
+    # gate the implementation does not have. The case is back to the status it
+    # documents for itself, and recall is correspondingly lower.
     assert caught == {
         "literal-copy", "shared-resource", "synthesised-text",
-        "control-dependence", "aliasing", "phantom",
+        "aliasing", "phantom",
     }
 
 
@@ -491,7 +497,10 @@ def test_binding_is_per_edge_not_per_tool():
     from staledep.binding import Bind, bind_of
     assert bind_of("banking", "send_money", "transactions") is Bind.SNAPSHOT
     assert bind_of("banking", "send_money", "account.iban") is Bind.DEREFERENCE
-    assert bind_of("banking", "send_money", "account.balance") is Bind.CONTROL
+    # Not CONTROL. That entry claimed funds gate the transfer; send_money never
+    # reads the balance. Unknown is the honest answer for a resource the tool
+    # does not touch -- see tests/test_binding_matches_source.py.
+    assert bind_of("banking", "send_money", "account.balance") is Bind.UNKNOWN
 
 
 def test_trace_and_trace_from_log_agree():
@@ -570,10 +579,10 @@ def test_snapshot_flows_are_not_counted_as_temporal():
         binds = {bind_of(c.suite, w.use_tool, w.resource) for w in r["windows"]}
         (temporal if binds & {Bind.DEREFERENCE, Bind.CONTROL} else snapshot).add(c.cls)
 
-    assert temporal == {"shared-resource", "aliasing", "control-dependence"}
+    assert temporal == {"shared-resource", "aliasing"}
     assert snapshot == {"literal-copy", "synthesised-text", "phantom"}
     # only shared-resource is temporal AND caught by the intended mechanism
-    assert len(temporal - {"aliasing", "control-dependence"}) == 1
+    assert len(temporal - {"aliasing"}) == 1
 
 
 def test_no_regex_pattern_contains_control_characters():

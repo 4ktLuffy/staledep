@@ -55,15 +55,18 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
         # recipient/amount are copied in as literals
         "file": Bind.SNAPSHOT,
         "transactions": Bind.SNAPSHOT,
-        # funds must suffice AT EXECUTION -- gates the call without appearing in it
-        "account.balance": Bind.CONTROL,
-        # the sending account is resolved live
+        # No balance entry. It used to say CONTROL, "funds must suffice AT
+        # EXECUTION". send_money never reads the balance -- verified against the
+        # pinned source, which builds a Transaction and appends it. The gate is
+        # real banking, not this system.
+        # the sending account is resolved live (`sender=get_iban(account)`)
         "account.iban": Bind.DEREFERENCE,
         "*": Bind.UNKNOWN,
     },
     ("banking", "schedule_transaction"): {
         "file": Bind.SNAPSHOT, "transactions": Bind.SNAPSHOT,
-        "account.balance": Bind.CONTROL, "*": Bind.UNKNOWN,
+        "account.iban": Bind.DEREFERENCE,      # same live sender resolution
+        "*": Bind.UNKNOWN,
     },
     ("banking", "update_scheduled_transaction"): {
         # id=7 resolves to whichever record now holds it -- lost update
@@ -106,15 +109,21 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
     },
 
     # --- travel --------------------------------------------------------------
+    # All three reservation tools take the venue NAME as a string and assign
+    # `reservation.title = name`. The collection is never consulted, so mutating
+    # it cannot move the booking -- that is SNAPSHOT. These said DEREFERENCE,
+    # "price/availability resolved at booking", which is what a real booking
+    # system does and not what this one does.
     ("travel", "reserve_hotel"): {
-        "hotels": Bind.DEREFERENCE,      # price/availability resolved at booking
-        "user": Bind.CONTROL, "*": Bind.UNKNOWN,
+        "hotels": Bind.SNAPSHOT,
+        "user": Bind.DEREFERENCE,        # get_user_information(user), resolved live
+        "*": Bind.UNKNOWN,
     },
     ("travel", "reserve_restaurant"): {
-        "restaurants": Bind.DEREFERENCE, "user": Bind.CONTROL, "*": Bind.UNKNOWN,
+        "restaurants": Bind.SNAPSHOT, "user": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
     },
     ("travel", "reserve_car_rental"): {
-        "cars": Bind.DEREFERENCE, "user": Bind.CONTROL, "*": Bind.UNKNOWN,
+        "cars": Bind.SNAPSHOT, "user": Bind.DEREFERENCE, "*": Bind.UNKNOWN,
     },
     ("travel", "cancel_calendar_event"): {
         "calendar": Bind.DEREFERENCE, "*": Bind.UNKNOWN,

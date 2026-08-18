@@ -71,13 +71,17 @@ rather than collapsed into one number:
 | stage | count | rate |
 |---|---|---|
 | eligible trajectories | 2540 | 100.0% |
-| broad candidates (the original proxy) | 1154 | 45.4% |
-| after same-turn exclusion | 1153 | 45.4% |
-| after failed-sink exclusion | 1135 | 44.7% |
-| snapshot-only flows | 476 | 18.7% |
-| **temporal (dereference/control)** | **655** | **25.8%** |
-| + attacker-writable | 383 | 15.1% |
-| + high-risk committed sink | 92 | 3.6% |
+| broad candidates (the original proxy) | 1152 | 45.4% |
+| after same-turn exclusion | 1151 | 45.3% |
+| after failed-sink exclusion | 1130 | 44.5% |
+| snapshot-only flows | 508 | 20.0% |
+| **temporal (dereference/control)** | **616** | **24.3%** |
+| + attacker-writable | 337 | 13.3% |
+| + high-risk committed sink | 56 | 2.2% |
+
+The last stage was **92 until the binding tables were checked against AgentDojo's
+source**; 36 of those rested on dependencies the implementations do not have. See
+*Bindings are verified against the source* below.
 
 **Same-turn exclusion removes only 1 trajectory.** The defect is real and
 reproducible — one assistant message containing `read_file` and `send_money`
@@ -87,34 +91,70 @@ batches, so its empirical impact is negligible. Failed-sink exclusion removes 18
 
 ### Binding is classified per edge, not per tool
 
-`send_money` simultaneously carries a snapshotted literal recipient, a
-current-balance predicate, and a live source-account identity. An earlier
-per-tool classification labelled the whole tool SNAPSHOT and erased the last two:
-it appears as snapshot in 97 windows and **dereference in 48**, and banking's
-high-risk rate was falsely 0.0% when it is 2.0%. The unit is
+`send_money` simultaneously carries a snapshotted literal recipient and a live
+source-account identity
+(`sender=get_iban(account)`). An earlier per-tool classification labelled the
+whole tool SNAPSHOT and erased the second: it appears as snapshot in 97 windows
+and **dereference in 48**. The unit is
 `(observed resource → sink)`, classified snapshot / dereference-at-use /
 control-dependent / unknown. `unknown` is never folded into the exploitable set.
 
-### The 92-trajectory danger set, audited exhaustively
+### The 56-trajectory danger set, audited exhaustively
 
-Not sampled — every entry was reproduced, and the distinct patterns judged by
-hand. **The 92 are 14 distinct (suite, task) shapes across 27 models, not 92
-independent findings.** One shape accounts for 40 of them.
+Not sampled — every entry was reproduced. **The 56 are 5 distinct (suite, task)
+shapes across 27 models, not 56 independent findings**, and after the binding
+correction they are *entirely workspace*: one coherent phenomenon rather than a
+mixed bag.
 
-| pattern | trajectories | binding | verdict |
+| pattern | windows | binding | verdict |
 |---|---|---|---|
-| `list_files → delete_file(file_id)` | 40 | dereference | genuine — the list shifts, the wrong file is deleted |
-| `get_*_hotels → reserve_hotel(hotel)` | 28 | dereference | genuine, but a **business race**: the mutator is a hotel changing its own prices |
-| `search_files → share_file(file_id)` | 15 | dereference | genuine — wrong file shared externally |
-| `get_iban → send_money` | 2 | dereference | genuine — source account resolved live |
-| `get_balance → send_money` | 2 | control | genuine — funds gate the call without appearing in it |
-| `get_scheduled → send_money` | 2 | unknown | unresolved; flagged via a co-occurring window |
-| `restaurant reviews → reserve_hotel` | 1 | unknown | **false positive** — lexical coincidence |
+| `list_files → delete_file(file_id)` | 39 | dereference | genuine — `files.pop(file_id)` resolves live; the wrong file is deleted |
+| `search_files_by_filename → share_file` | 13 | dereference | genuine — wrong file shared externally |
+| `search_files → share_file` | 9 | dereference | genuine |
+| `list_files → share_file` | 7 | dereference | genuine |
+| `get_file_by_id → share_file` | 3 | dereference | genuine |
+| `search_files_by_filename → delete_file` | 3 | dereference | genuine |
 
-**28 of the 92 are travel price races.** Under the `strict` threat model travel
-is 0.0%; they appear here because the waterfall uses `moderate`. So the
-security-relevant residue is narrower than 3.6%: roughly **60 trajectories across
-~6 patterns, dominated by file-handle dereference in workspace**.
+The travel price races and the banking balance gates that used to fill this table
+are gone. They were never in the code — see below.
+
+### Bindings are verified against the source, not asserted
+
+52.2% of the then-92-trajectory danger set rested on effect typing alone: no
+lineage, just hand-written tables in `binding.py` and `effects.py` claiming a tool resolves a
+resource live. Those tables were written from what the tools are *named* and what
+the domain implies, and no entry had ever been checked against AgentDojo's code.
+
+Five were wrong, all in the same direction — **inventing a dependency**:
+
+| entry | claimed | the implementation |
+|---|---|---|
+| `send_money` `account.balance` | CONTROL, "funds must suffice at execution" | never reads the balance; builds a `Transaction`, appends it, returns |
+| `schedule_transaction` `account.balance` | CONTROL | same — no funds check exists |
+| `reserve_hotel` `hotels` | DEREFERENCE, "price/availability resolved at booking" | `reservation.title = hotel` — the collection is never consulted |
+| `reserve_restaurant` `restaurants` | DEREFERENCE | same |
+| `reserve_car_rental` `cars` | DEREFERENCE | same |
+
+Every one describes the system these tools *resemble* rather than the system under
+analysis. A real bank gates on funds and a real booking engine reprices at
+confirmation; this corpus does neither. `DEREFERENCE` and `CONTROL` are the claims
+that produce danger flags, so an unjustified one manufactures a vulnerability —
+which is what these did, for **36 of the 92**.
+
+`tests/test_binding_matches_source.py` now parses the pinned AgentDojo source and
+fails any non-snapshot binding whose tool body never mentions the resource. It is
+a **necessary, not sufficient** condition: it cannot confirm a binding is right,
+only catch one that is impossible. It found all five, plus one error in its own
+symbol mapping. Written naively it read whole functions and passed everything —
+AgentDojo declares state as `Depends("car_rental")` *parameters*, so every tool
+names its own resource in its signature whether or not it reads it. It checks
+bodies only.
+
+**Recall fell too, correctly.** The seeded `control-dependence` case was being
+caught *only* by the fictional balance gate. `seeded.py` has always filed it under
+"expected: MISSED (blind spots)" — *"the read decides WHETHER to pay, not what to
+pay. No value flows."* It is now missed, as documented, and the pinned recall set
+is one class smaller.
 
 ### Recall by dependency class
 
@@ -234,7 +274,7 @@ the most useful thing here.
 
 **Method errors**
 
-- An audit of the 92-trajectory danger set appeared to find 13 entries the
+- An audit of the danger set appeared to find 13 entries the
   filter should not have flagged. The filter was correct; the audit checked the
   first file in each task directory rather than the qualifying one. Made twice
   before being caught.
@@ -281,7 +321,8 @@ the most useful thing here.
   matched instead, which is a literal substring match like any other. Evidence
   resting on a bare year went **39.4% → 0%** of temporal-window links, the new
   `date` rule backs 19.0% at **8/8 sampled genuine**, and the trajectory-level
-  rates barely move (temporal 655 → 651, high-risk danger set 92 → 92).
+  rates barely move (temporal 655 → 651, high-risk danger set 92 → 92 — those
+  were the figures *before* the binding correction below cut the headline to 56).
 
 - **Every flag is reported with the strength of the evidence under it.** A window
   backed by an exact IBAN match is not the same claim as one backed by two shared
@@ -290,9 +331,9 @@ the most useful thing here.
 
   | tier | meaning | temporal windows | headline danger set |
   |---|---|---|---|
-  | `state` | effect typing alone, no lineage used | 27.3% | **52.2%** |
-  | `strong` | exact value, full date, or arithmetic | 57.2% | **47.8%** |
-  | `token-only` | nothing but two shared words | 15.5% | **0.0%** |
+  | `state` | effect typing alone, no lineage used | 27.8% | **69.6%** |
+  | `strong` | exact value, full date, or arithmetic | 55.7% | **30.4%** |
+  | `token-only` | nothing but two shared words | 16.5% | **0.0%** |
 
   **The loosest matcher contributes 0% of the headline set.** That is a measured
   property of this corpus rather than a guarantee, which is why it is reported
