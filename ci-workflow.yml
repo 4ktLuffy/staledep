@@ -1,24 +1,46 @@
 name: ci
 
+# The corpus is NOT vendored (reference/ is gitignored), and the source
+# verification and exploitability tests are guarded by skipif on its presence.
+# Without the fetch step below, CI collects 116 tests instead of 178: 62 vanish
+# silently -- parametrised cases whose parameter list is built from the missing
+# source collect to ZERO and are not even reported as skips. A green check would
+# have covered none of the binding, effects or exploitability work.
 on:
   push:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fetch the pinned AgentDojo corpus
+        run: |
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/ethz-spylab/agentdojo.git reference/agentdojo
+          git -C reference/agentdojo checkout 089ed468cf3ed0322acc66b0211f26d9d90dbf60
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Install
         run: pip install -e ".[dev]"
+
       - name: Lint
         run: ruff check staledep tests *.py
+
       - name: Test
+        env:
+          STALEDEP_REQUIRE_CORPUS: "1"
         run: pytest -q

@@ -187,13 +187,8 @@ def trace_from_log(
     links: list[ProvenanceLink] = []
     outputs: list[tuple[int, str, str, set[str], int]] = []   # + turn
 
-    norm = []
-    for i, st in enumerate(steps):
-        if hasattr(st, "tool"):
-            norm.append((st.idx, st.turn, st.tool, st.args, st.output))
-        else:
-            name, kwargs, output = st
-            norm.append((i, -1, name, kwargs, output))        # -1 = turn unknown
+    from .signals import normalise
+    norm = [(s.idx, s.turn, s.tool, s.args, s.output) for s in normalise(steps, errored)]
 
     for idx, turn, name, kwargs, output in norm:
         for arg_name, arg_value in (kwargs or {}).items():

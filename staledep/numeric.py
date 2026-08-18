@@ -203,13 +203,9 @@ def trace_numeric(steps, errored: set[int] | None = None,
     # never once exercised against the seeded cases it was written to cover.
     # A second entry point that disagrees with the first is the same defect that
     # made trace() and trace_from_log() diverge.
-    for pos, st in enumerate(steps):
-        if hasattr(st, "tool"):
-            idx, turn = st.idx, st.turn
-            tool, args, output = st.tool, st.args or {}, st.output
-        else:
-            idx, turn = pos, pos          # a sequential ground truth: one per turn
-            tool, args, output = st[0], st[1] or {}, st[2]
+    from .signals import normalise
+    for _ns in normalise(steps, errored):
+        idx, turn, tool, args, output = _ns.idx, _ns.turn, _ns.tool, _ns.args, _ns.output
 
         for arg_name, arg_value in args.items():
             if tool in read_sinks:

@@ -105,12 +105,8 @@ def trace_absence(steps, errored: set[int] | None = None) -> list[AbsenceLink]:
     if not steps:
         return out
 
-    norm = []
-    for pos, st in enumerate(steps):
-        if hasattr(st, "tool"):
-            norm.append((st.idx, st.turn, st.tool, st.output, st.idx in errored))
-        else:
-            norm.append((pos, pos, st[0], st[2], pos in errored))
+    from .signals import normalise
+    norm = [(s.idx, s.turn, s.tool, s.output, s.errored) for s in normalise(steps, errored)]
 
     suite_guess = None
     for _, _, tool, _, _ in norm:
