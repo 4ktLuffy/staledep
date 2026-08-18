@@ -28,7 +28,8 @@ and the corrections are worth stating plainly because they shaped the design:
   requires the action to *dereference* current state at use time.
 
 A defensible vulnerability claim needs four conditions. This tool establishes
-part of the first:
+the first, and **condition 3 is now executed rather than argued** — see
+[Condition 3, executed](#condition-3-executed):
 
 1. the action causally depends on the earlier observation
 2. a stated attacker can mutate the relevant state during the interval
@@ -149,6 +150,48 @@ symbol mapping. Written naively it read whole functions and passed everything �
 AgentDojo declares state as `Depends("car_rental")` *parameters*, so every tool
 names its own resource in its signature whether or not it reads it. It checks
 bodies only.
+
+### Condition 3, executed
+
+Every measurement above is static. "This edge is DEREFERENCE" is a claim that the
+argument resolves against live state at use time, and until a mutation is fired in
+the gap and the action lands somewhere else, it stays a claim.
+`demo_exploitability.py` replays the agent's **own observed arguments** against a
+real AgentDojo `CloudDrive`, once clean and once with an attacker mutation in the
+check-use gap:
+
+```
+[A] list_files -> delete_file                       (39 of the 56)
+    check  : agent lists files, selects id=3     -> 'team-building-activities.docx'
+    clean  : delete_file(3) removed                 'team-building-activities.docx'
+    MUTATED: delete_file(3) removed                 'board-compensation-2026.xlsx'
+    -> REBOUND: True
+
+[B] search_files_by_filename -> share_file          (13 of the 56)
+    clean  : share_file(0) shared                   'feedback.xlsx'
+    MUTATED: share_file(0) shared                   'salaries-2026.xlsx'
+    -> REBOUND: True   (eve@evil.com now holds it)
+
+[C] NEGATIVE CONTROL — reserve_hotel, a snapshot edge
+    clean  : reservation.title =                    'Le Marais Boutique'
+    MUTATED: reservation.title =                    'Le Marais Boutique'
+    -> REBOUND: False   <- must be False for SNAPSHOT to hold
+```
+
+The negative control carries as much weight as the positives. Under **identical
+attacker authority**, the two dereference edges move and the snapshot edge does
+not — so the snapshot/temporal distinction the entire waterfall rests on is
+demonstrated, not assumed. It also independently confirms the `reserve_hotel`
+reclassification: had that been wrong, this control would have moved.
+
+Condition 4 is covered too: firing the same mutation *after* the use achieves
+nothing, because the file is already gone. Without that check the experiment would
+only show that mutating state breaks things, which is true and uninteresting.
+
+**What this does not show:** that a model would be fooled. Replaying fixed
+arguments isolates whether the *binding* is live; it says nothing about whether an
+agent's reasoning can be steered. That needs an agent in the loop and is a
+separate claim.
 
 ### Effects are checked against the source too, with the checker's own limits declared
 

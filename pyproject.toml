@@ -49,3 +49,6 @@ ignore = ["E501"]
 "probe_*.py" = ["UP031"]
 "run_*.py" = ["UP031"]
 "find_*.py" = ["UP031"]
+# The exploitability demo prints an aligned before/after transcript, and must
+# insert the vendored AgentDojo source on sys.path before importing from it.
+"demo_*.py" = ["UP031", "E402"]
