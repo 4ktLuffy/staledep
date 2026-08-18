@@ -91,7 +91,7 @@ rather than collapsed into one number:
 > a *different computation* — raw links, no same-turn or committed filter — and is
 > not part of that chain.
 >
-> **`443` is a resource-level upper bound**, not 447 established entity-level
+> **`443` is a resource-level upper bound**, not 443 established entity-level
 > dependencies. The effect tables model resources, not entities, so a window on
 > `files` is a candidate for a dependency on *some* file, not proof of one on
 > *the* file. Only the 56 danger replays carry entity-level evidence.
@@ -99,8 +99,10 @@ rather than collapsed into one number:
 > Same-population prevalence: all 56 are workspace, so **56/1054 = 5.3% of
 > workspace trajectories**; 2.2% is against the all-suite denominator where three
 > suites contribute structurally zero.
-> The unit of independent evidence is the shape; the models are replicates.
-> Reporting 41 implies 41 independent observations and overstates by ~14×.
+>
+> The unit of independent evidence is the **shape**; the models are replicates.
+> Reporting 56 as findings implies 56 independent observations and overstates by
+> roughly 11×.
 
 **Negative evidence is reported outside this funnel**, because it is a new signal
 rather than a filter: 111 trajectories (4.4%), 43 newly temporal, **0 newly in the
