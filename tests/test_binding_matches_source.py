@@ -29,6 +29,23 @@ It reads the vendored AgentDojo source pinned in CORPUS.md. It is deliberately a
 NECESSARY condition, not a sufficient one -- a mention proves the resource is
 reachable, not that it is dereferenced. It cannot confirm a binding is right; it
 can only catch one that is impossible.
+
+DEMONSTRATED FALSE NEGATIVE. It passed
+("workspace","create_calendar_event"): {"calendar": CONTROL} for four
+iterations. The body contains `calendar.create_event(...)`, which satisfies the
+mention test -- but create_event allocates a fresh id and assigns
+self.events[id_] = event, consulting nothing. A delegation MENTION is not
+evidence of gating, and 83 windows rested on that fiction.
+
+WHAT COUNTS AS EVIDENCE NOW. A CONTROL binding claims the sink reads the
+resource to DECIDE, so the bar is a conditional that depends on it: a branch,
+comparison, or raise reached from the resource. A DEREFERENCE binding claims the
+sink resolves an argument against the resource, so the bar is a lookup keyed by
+an argument. Neither is inferable from a bare call, so where static evidence is
+absent the binding needs runtime evidence
+(tests/test_intervention_harness.py) or an explicit attestation recorded at the
+entry. ATTESTED below names the entries carrying a human-checked justification
+rather than a mechanical one.
 """
 
 from __future__ import annotations
@@ -42,6 +59,15 @@ from staledep.binding import EDGE_BINDING, Bind
 
 TOOLS = pathlib.Path(__file__).resolve().parents[1] / (
     "reference/agentdojo/src/agentdojo/default_suites/v1/tools")
+
+#: Bindings whose justification is a hand-read of the implementation rather than
+#: anything this checker can establish. Naming them is the point: an attestation
+#: that is not written down is indistinguishable from an oversight.
+ATTESTED = {
+    ("banking", "send_money", "account.iban"),      # sender=get_iban(account)
+    ("workspace", "delete_file", "files"),          # files.pop(file_id)
+    ("workspace", "share_file", "files"),           # get_file_by_id then mutate acl
+}
 
 #: The symbol in AgentDojo's source that a staledep resource name refers to.
 #: A resource with no entry is not checkable here and is skipped explicitly
@@ -120,4 +146,42 @@ def test_live_resolution_claim_is_reachable_in_the_tool_source(suite, tool, reso
         f"{suite}.{tool} is declared {bind.value} on '{resource}', which claims it "
         f"resolves that resource live -- but its implementation never mentions "
         f"{list(symbols)}. Either the binding is wrong or the mapping is."
+    )
+
+
+def test_a_delegation_mention_is_not_evidence_of_gating():
+    """REGRESSION for the checker's own false negative.
+
+    ("workspace","create_calendar_event"): {"calendar": CONTROL} passed this
+    module for four iterations because the body contains
+    `calendar.create_event(...)`. create_event allocates a fresh id and assigns;
+    it consults nothing. 83 windows rested on it.
+
+    The binding is now SNAPSHOT, so the fiction cannot return silently. The
+    checker still cannot tell a gating read from a delegation, which is why the
+    bar for CONTROL is a conditional on the resource and why ATTESTED exists."""
+    from staledep.binding import Bind, bind_of
+
+    body = SOURCE.get("create_calendar_event", "")
+    assert "calendar" in body, "the mention that fooled the checker is still there"
+    assert bind_of("workspace", "create_calendar_event", "calendar") is Bind.SNAPSHOT
+    assert bind_of("travel", "create_calendar_event", "calendar") is Bind.SNAPSHOT
+
+
+def test_control_bindings_are_either_conditional_backed_or_attested():
+    """A CONTROL binding claims the sink reads the resource to DECIDE. That needs
+    a conditional reached from the resource, or a recorded attestation."""
+    import re as _re
+    unjustified = []
+    for suite, tool, resource, bind in CASES:
+        if bind is not Bind.CONTROL:
+            continue
+        if (suite, tool, resource) in ATTESTED:
+            continue
+        body = SOURCE.get(tool, "")
+        if not _re.search(r"\b(if|raise|assert|while|else)\b", body):
+            unjustified.append((suite, tool, resource))
+    assert not unjustified, (
+        f"CONTROL with no conditional in the body and no attestation: "
+        f"{unjustified}. That is the create_calendar_event failure shape."
     )

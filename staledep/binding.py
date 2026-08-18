@@ -169,7 +169,13 @@ EDGE_BINDING: dict[tuple[str, str], dict[str, Bind]] = {
         "email.received": Bind.SNAPSHOT, "files": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
     ("workspace", "create_file"): {
-        "files": Bind.CONTROL,           # name-collision check
+        # Was CONTROL, "name-collision check". VERIFIED FICTION, the third of
+        # this shape: create_file allocates _get_next_id() = max(existing)+1 and
+        # assigns self.files[id] = new_file. There is no collision check and
+        # duplicate filenames are permitted. It reads `files` only to pick an id,
+        # which an attacker cannot steer, so mutating the drive cannot change
+        # what is created.
+        "files": Bind.SNAPSHOT,
         "email.received": Bind.SNAPSHOT, "*": Bind.UNKNOWN,
     },
     ("workspace", "send_email"): {

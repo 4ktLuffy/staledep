@@ -32,9 +32,13 @@ TRAVEL = AGENTDOJO / "src/agentdojo/data/suites/travel/environment.yaml"
 #: findings were checked against code that is not what CI is running.
 PINNED = "089ed468cf3ed0322acc66b0211f26d9d90dbf60"
 
-#: Lower bounds observed at the pinned revision.
-MIN_BINDING_CASES = 20
-MIN_EFFECT_CASES = 50
+#: EXACT counts at the pinned revision, not minimums. A minimum still lets cases
+#: disappear silently -- losing 4 of 24 binding cases would pass a >=20 bound.
+#: These are a manifest: changing them requires editing this file, which is the
+#: explicit review step. A count that moves for a legitimate reason (a binding
+#: added, a tool declared) fails here first and is updated deliberately.
+EXPECTED_BINDING_CASES = 23   # 24 before create_file CONTROL -> SNAPSHOT
+EXPECTED_EFFECT_CASES = 63
 REQUIRED = os.environ.get("STALEDEP_REQUIRE_CORPUS") == "1"
 
 
@@ -73,9 +77,10 @@ def test_binding_cases_were_actually_built():
     if not TOOLS.is_dir():
         _required(f"corpus absent: {mod.__name__} built {len(mod.CASES)} cases")
         return
-    assert len(mod.CASES) >= MIN_BINDING_CASES, (
-        f"{mod.__name__} built only {len(mod.CASES)} cases; expected at least "
-        f"{MIN_BINDING_CASES}. The suite would report green while testing nothing."
+    assert len(mod.CASES) == EXPECTED_BINDING_CASES, (
+        f"{mod.__name__} built {len(mod.CASES)} cases, manifest says "
+        f"{EXPECTED_BINDING_CASES}. If a binding was added or removed on purpose, "
+        f"update EXPECTED_BINDING_CASES in this file -- that edit is the review."
     )
 
 
@@ -84,9 +89,9 @@ def test_effect_cases_were_actually_built():
     if not TOOLS.is_dir():
         _required(f"corpus absent: {mod.__name__} built {len(mod.CASES)} cases")
         return
-    assert len(mod.CASES) >= MIN_EFFECT_CASES, (
-        f"{mod.__name__} built only {len(mod.CASES)} cases; expected at least "
-        f"{MIN_EFFECT_CASES}."
+    assert len(mod.CASES) == EXPECTED_EFFECT_CASES, (
+        f"{mod.__name__} built {len(mod.CASES)} cases, manifest says "
+        f"{EXPECTED_EFFECT_CASES}. Update deliberately if intended."
     )
 
 
