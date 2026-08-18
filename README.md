@@ -80,6 +80,11 @@ rather than collapsed into one number:
 | + attacker-writable | 337 | 13.3% |
 | + high-risk committed sink | 56 | 2.2% |
 
+**Negative evidence is reported outside this funnel**, because it is a new signal
+rather than a filter: 146 trajectories (5.7%), 53 newly temporal, 9 newly in the
+danger set. Folding it into the funnel made a later stage larger than an earlier
+one, and a funnel that grows is not a funnel.
+
 The last stage was **92 until the binding tables were checked against AgentDojo's
 source**; 36 of those rested on dependencies the implementations do not have. See
 *Bindings are verified against the source* below.
@@ -230,32 +235,72 @@ is one class smaller.
 
 ### Recall by dependency class
 
-Twelve synthetic trajectories, each carrying a known dependency of one class
+Thirteen synthetic trajectories, each carrying a known dependency of one class
 (`python report_recall.py`).
 
 | class | flagged | window binding | temporal? |
 |---|---|---|---|
 | shared-resource (lost update) | yes | dereference | **yes — the only unambiguous one** |
+| **negative-evidence** | **yes** | **control** | **yes — new signal** |
 | aliasing | yes | dereference | yes, but caught incidentally |
-| control-dependence | yes | control | yes, but caught incidentally |
-| **aggregate** | **yes** | snapshot | no — the sum is copied into the argument |
+| aggregate | yes | snapshot | no — the sum is copied into the argument |
+| **derived-value-observed** | **yes** | snapshot | no — the product is copied in |
 | phantom | yes | unknown | excluded from the exploitable set |
 | literal-copy | yes | snapshot | no — a safe snapshot |
 | synthesised-text | yes | snapshot | no — a safe snapshot |
+| control-dependence | NO | — | no coverage |
 | derived-value | NO | — | **uncovered by design** (see below) |
-| negative-evidence | NO | — | no coverage |
 | laundering-hop | NO | — | no coverage |
 | implicit-read-in-write | NO | — | no coverage |
 | cross-system | NO | — | no coverage |
 
 | | count |
 |---|---|
-| Flagged by any rule | 7/12 (58%) |
-| Produce a **temporal** window | 3/12 (25%) |
-| **Temporal AND by the intended mechanism** | **1/12 (8%)** |
+| Flagged by any rule | **8/13 (62%)**, was 5/12 (42%) |
+| Produce a **temporal** window | 3/13 (23%) |
+| **Temporal AND by the intended mechanism** | **2/13 (15%)**, was 1/12 |
 
-The last row is the defensible one. `aliasing` and `control-dependence` are
-temporal but were caught by a rule that happened to fire.
+Two of those three gains were free, in the sense that the code already existed:
+
+- **`aggregate` was never actually uncovered.** `trace_numeric` could not accept
+  the tuple steps the recall harness uses and raised `AttributeError`, so the
+  harness had only ever been passed lexical links. The class was published as
+  zero-coverage on the strength of a signal that had never been run against it.
+  The same defect as the old `trace` / `trace_from_log` divergence: a second
+  entry point that disagrees with the first.
+- **`derived-value` was two gaps wearing one name**, now split. Quantity × unit
+  price — *both factors present in the source* — is the commonest derivation in
+  invoice work and is fully verifiable; it was being refused alongside the
+  genuinely unverifiable currency conversion, where the rate appears nowhere in
+  the trajectory. The second half stays uncovered by design, because admitting
+  unknown multipliers matches any pair of numbers at all.
+
+**`negative-evidence` is the one genuinely new signal** (`absence.py`), and it is
+structurally unlike the others. Both lineage signals follow a *value* from an
+output into a later argument; when the check returns nothing there is no value to
+follow, so both are blind by construction — yet "I searched for a cancellation,
+found none, and proceeded" is a textbook race. On the real corpus it fires on
+**5.7% of trajectories** (146), adding 53 temporal windows and 9 danger-set
+entries. The largest pattern is `search_files_by_filename → create_file`:
+check-then-create.
+
+Its binding is `control`, and the reasoning is deliberately the *opposite* of the
+mistake made with `send_money`'s balance gate. That entry assumed a precondition
+the implementation does not have. Here the check returned **no value**, so nothing
+could have been copied into the action; if the read influenced it at all, control
+flow is the only channel left — a deduction from the observed trajectory rather
+than an assumption about code. It is still the weakest claim in the codebase,
+since whether the agent conditioned on the empty result is not observable, so it
+carries its own evidence tier and is never counted as `strong`.
+
+Tightening numeric lineage while adding the product relation removed every
+coincidence it had on the corpus (**9 → 0**). Three separate defects surfaced:
+`n=100` pagination arguments "explained" as `2.0 × 50.0` (read sinks are now
+skipped, since a read acting on stale data changes nothing); products of two
+integers, which is cheap because any composite factors several ways; and
+`amount=200.0` "derived" from `[-1.0, 1.0, 200.0]`, a literal copy padded to the
+three-term minimum by a cancelling pair.
+
 
 **Numeric lineage** (`numeric.py`) closed the `aggregate` gap. Lexical matching
 only finds values that were *copied*; in financial work most are *derived* — a

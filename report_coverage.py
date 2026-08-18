@@ -41,6 +41,7 @@ import glob
 import json
 import os
 
+from staledep.absence import trace_absence
 from staledep.binding import Bind, bind_of
 from staledep.numeric import trace_numeric
 from staledep.provenance import trace_from_log
@@ -85,7 +86,8 @@ def agentdojo():
                 r = classify_task(tool_names(steps), suite,
                                   links=trace_from_log(steps, errored),
                                   committed=committed(steps),
-                                  numeric_links=trace_numeric(steps, errored))
+                                  absence_links=trace_absence(steps, errored),
+                                  numeric_links=trace_numeric(steps, errored, suite))
                 _tally(r["windows"], suite, binds, pairs, unknown_pairs)
     return n_traj, binds, unknown_pairs
 

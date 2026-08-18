@@ -203,15 +203,24 @@ def test_seeded_recall_is_pinned():
     """Recall by dependency class. If a fix improves coverage, update these
     numbers deliberately -- silent drift in either direction is the failure
     mode this test exists to prevent."""
+    from staledep.absence import trace_absence
+    from staledep.numeric import trace_numeric
     from staledep.provenance import trace_from_log
     from staledep.seeded import CASES
     from staledep.toctou import classify_task
 
+    # All three signals, which is the point. An earlier version passed only
+    # lexical links, so numeric lineage was never exercised here at all -- and
+    # `trace_numeric` could not even accept the tuple steps this harness uses,
+    # raising AttributeError. The aggregate class had been reported as
+    # zero-coverage on that basis while the code to catch it already existed.
     caught = {
         c.cls
         for c in CASES
         if classify_task([n for n, _, _ in c.steps], c.suite,
-                         links=trace_from_log(c.steps))["candidate"]
+                         links=trace_from_log(c.steps),
+                         numeric_links=trace_numeric(c.steps, None, c.suite),
+                         absence_links=trace_absence(c.steps))["candidate"]
     }
     # control-dependence dropped out when the fictional balance gate was removed.
     # seeded.py has always filed it under "expected: MISSED (blind spots)" -- "the
@@ -222,6 +231,9 @@ def test_seeded_recall_is_pinned():
     assert caught == {
         "literal-copy", "shared-resource", "synthesised-text",
         "aliasing", "phantom",
+        "aggregate",                 # numeric lineage, finally exercised
+        "negative-evidence",         # new signal: the check that found nothing
+        "derived-value-observed",    # new relation: quantity x unit price
     }
 
 
@@ -798,3 +810,102 @@ def test_unknown_outranks_snapshot_when_resolving_a_dataflow_edge():
     assert bind_of("claude_code", "Write", "dataflow:Bash") is Bind.UNKNOWN
     # and a source whose reads are all modelled still classifies
     assert bind_of("claude_code", "Write", "dataflow:Read") is not Bind.DEREFERENCE
+
+
+# ------------------------------------------------- negative evidence (absence)
+def test_a_read_that_found_nothing_is_a_check():
+    """The highest-value recall gap. Both lineage signals follow a VALUE from an
+    output into a later argument; when the check returns nothing there is no
+    value to follow, so both are blind by construction. "I searched for a
+    cancellation, found none, and proceeded" is a textbook race."""
+    from staledep.absence import trace_absence
+    steps = [
+        ("search_emails", {"query": "cancellation"}, []),
+        ("create_calendar_event", {"title": "Site visit"}, "created"),
+    ]
+    links = trace_absence(steps)
+    assert [(x.source_idx, x.sink_idx) for x in links] == [(0, 1)]
+
+
+def test_an_error_is_not_an_absence():
+    """"channel not found" means the check did not happen. Treating that as a
+    successful negative observation credits a failed call as evidence."""
+    from staledep.absence import is_absent, trace_absence
+    assert not is_absent("ValueError: channel not found")
+    steps = [
+        ("search_emails", {"query": "x"}, []),
+        ("send_email", {"recipients": ["a@b.c"]}, "sent"),
+    ]
+    assert trace_absence(steps, errored={0}) == []
+
+
+def test_absence_pairs_only_with_the_nearest_state_change():
+    """Pairing every empty read with every later write would rebuild the
+    read-then-act tautology this project exists to refute."""
+    from staledep.absence import trace_absence
+    steps = [
+        ("search_emails", {"query": "x"}, []),
+        ("send_email", {"recipients": ["a@b.c"]}, "sent"),
+        ("send_email", {"recipients": ["d@e.f"]}, "sent"),
+    ]
+    assert [x.sink_idx for x in trace_absence(steps)] == [1]
+
+
+def test_absence_binds_as_control_and_is_never_strong():
+    """The check copied NO value into the action, so the only channel left is
+    control flow -- a deduction from the observed trajectory, not an assumption
+    about the sink's code, which is what made the send_money balance gate wrong.
+    It remains the weakest claim here, so it gets its own tier."""
+    from staledep.absence import AbsenceLink
+    from staledep.binding import Bind, bind_of
+    from staledep.toctou import Window, evidence_tier
+    assert bind_of("workspace", "create_calendar_event",
+                   "absence:search_emails") is Bind.CONTROL
+    w = Window("absence:search_emails", 0, "search_emails", 1,
+               "create_calendar_event", Risk.WRITE)
+    link = AbsenceLink(0, "search_emails", 1, "create_calendar_event")
+    assert evidence_tier(w, [link]) == "absence"
+
+
+# ------------------------------------------------------ derived value: product
+def test_quantity_times_unit_price_is_lineage():
+    """The checkable half of the derived-value gap: both factors are in the
+    source. Refusing it threw away a verifiable relation along with the
+    unverifiable one."""
+    from staledep.numeric import explain
+    assert explain(546.0, [12.0, 45.5, 3.0]) == ("product", (12.0, 45.5))
+
+
+def test_an_unobserved_exchange_rate_stays_uncovered():
+    """100 EUR -> 6350 ETB needs a rate that is nowhere in the trajectory.
+    Admitting unknown multipliers would match any pair of numbers at all, so
+    this class stays uncovered and stays declared as uncovered."""
+    from staledep.numeric import explain
+    assert explain(6350.0, [100.0]) is None
+
+
+def test_two_integers_multiplying_to_the_target_are_not_evidence():
+    """Any composite number factors several ways. Measured, an integer-only rule
+    produced 9 links on the corpus and every one was a coincidence --
+    get_most_recent_transactions(n=100) "explained" as 2.0 x 50.0."""
+    from staledep.numeric import explain
+    assert explain(100.0, [2.0, 50.0]) is None
+
+
+def test_a_sum_containing_the_target_is_a_copy_not_a_derivation():
+    """amount=200.0 "derived" from [-1.0, 1.0, 200.0]: a cancelling pair padding
+    a literal copy up to the three-term minimum. Lexical matching owns copies."""
+    from staledep.numeric import explain
+    assert explain(200.0, [-1.0, 1.0, 200.0]) is None
+    assert explain(200.0, [120.0, 65.5, 14.5]) == ("subset-sum", (120.0, 65.5, 14.5))
+
+
+def test_numeric_lineage_skips_read_sinks_when_the_suite_is_known():
+    """A read acting on stale data changes nothing, so a numeric link into one
+    can never form a window -- it is pure noise in a link-level audit."""
+    from staledep.numeric import trace_numeric
+    steps = [
+        ("get_most_recent_transactions", {"n": 100}, "amount: 2.0 amount: 50.5"),
+        ("get_most_recent_transactions", {"n": 101.0}, "x"),
+    ]
+    assert trace_numeric(steps, None, "banking") == []

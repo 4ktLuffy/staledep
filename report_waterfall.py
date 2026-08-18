@@ -27,6 +27,7 @@ import glob
 import json
 import os
 
+from staledep.absence import trace_absence
 from staledep.binding import bind_of
 from staledep.effects import Risk
 from staledep.numeric import trace_numeric
@@ -35,7 +36,9 @@ from staledep.toctou import classify_task, find_windows, windows_from_provenance
 from staledep.trajectory import committed, steps_from_messages, tool_names
 
 RUNS = "reference/agentdojo/runs"
-_TIER_ORDER = {"state": 0, "strong": 1, "token-only": 2}
+#: Best-evidence-first. `absence` ranks last: it is the weakest claim here,
+#: since whether the agent conditioned on an empty result is unobservable.
+_TIER_ORDER = {"state": 0, "strong": 1, "token-only": 2, "absence": 3}
 SUITES = ["banking", "slack", "travel", "workspace"]
 
 
@@ -72,14 +75,28 @@ def main() -> None:
 
                 # same-turn excluded (Step objects carry turn identity)
                 links = trace_from_log(steps, errored)
-                numeric = trace_numeric(steps, errored)
+                numeric = trace_numeric(steps, errored, suite)
                 w_turn = find_windows(names, suite) + windows_from_provenance(names, links, suite)
                 if w_turn:
                     stage["after_same_turn"] += 1
                     per_suite[suite]["after_same_turn"] += 1
 
+                # The funnel is lineage + effect typing ONLY. Absence is a new
+                # SIGNAL, not a filter, so folding it in here made a later stage
+                # larger than an earlier one -- a funnel that grows is not a
+                # funnel. Its contribution is reported separately below.
                 r = classify_task(names, suite, links=links, committed=committed(steps),
                                   numeric_links=numeric)
+                absence = trace_absence(steps, errored)
+                r_abs = classify_task(names, suite, links=links, committed=committed(steps),
+                                      numeric_links=numeric, absence_links=absence)
+                if absence:
+                    stage["absence_traj"] += 1
+                    if r_abs["temporal"] and not r["temporal"]:
+                        stage["absence_new_temporal"] += 1
+                    if r_abs["n_danger_high_risk"] and not r["n_danger_high_risk"]:
+                        stage["absence_new_danger"] += 1
+                tier_temporal.update(r_abs["tier_temporal"])
                 if r["candidate"]:
                     stage["after_committed"] += 1
                     per_suite[suite]["after_committed"] += 1
@@ -92,7 +109,6 @@ def main() -> None:
                 if r["danger"]:
                     stage["danger"] += 1
                     per_suite[suite]["danger"] += 1
-                tier_temporal.update(r["tier_temporal"])
                 if r["n_danger_high_risk"]:
                     # A trajectory is credited to its STRONGEST evidence: the
                     # question is whether the claim stands, not whether some
@@ -133,17 +149,25 @@ def main() -> None:
             suite, 100*c["broad"]/e, 100*c["after_same_turn"]/e,
             100*c["after_committed"]/e, 100*c["temporal"]/e, 100*c["danger_high"]/e))
 
+    print("\nNEGATIVE EVIDENCE — a new signal, reported outside the funnel")
+    print("  (a read that found NOTHING, then a state change. Both lineage signals")
+    print("   follow a value, so both are blind to it by construction.)")
+    print("  trajectories with an absence window : %d  (%.1f%%)"
+          % (stage["absence_traj"], 100 * stage["absence_traj"] / max(n, 1)))
+    print("  newly temporal because of it        : %d" % stage["absence_new_temporal"])
+    print("  newly in the danger set             : %d" % stage["absence_new_danger"])
+
     print("\nEVIDENCE TIER — what each flag actually rests on")
     print("  (state = effect typing alone; strong = exact value, full date or"
           " arithmetic;\n   token-only = nothing but two shared words)")
     tt = sum(tier_temporal.values())
     print("  temporal windows      : " + "  ".join(
         "%s %d (%.1f%%)" % (k, tier_temporal[k], 100 * tier_temporal[k] / max(tt, 1))
-        for k in ("state", "strong", "token-only")))
+        for k in ("state", "strong", "token-only", "absence")))
     td = sum(tier_danger.values())
     print("  danger-set trajectories: " + "  ".join(
         "%s %d (%.1f%%)" % (k, tier_danger[k], 100 * tier_danger[k] / max(td, 1))
-        for k in ("state", "strong", "token-only")))
+        for k in ("state", "strong", "token-only", "absence")))
     print("  -> the loosest matcher contributes %.1f%% of the headline set."
           % (100 * tier_danger["token-only"] / max(td, 1)))
 

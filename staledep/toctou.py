@@ -22,7 +22,7 @@ same criterion run over live trajectories, not just ground truth.
 from __future__ import annotations
 
 import collections
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .binding import Bind, bind_of
 from .effects import Effect, Risk, effects_for, is_attacker_writable
@@ -181,14 +181,21 @@ def evidence_tier(window, links) -> str:
                   else getattr(link, "rule", "direct"))
     if not rules:
         return "state"
-    return "strong" if rules & _STRONG_RULES else "token-only"
+    if rules & _STRONG_RULES:
+        return "strong"
+    if rules == {"absence"}:
+        # Weakest claim in the codebase: whether the agent conditioned on an
+        # empty result is not observable. Its own tier so it is never counted
+        # as strong and never hidden inside token-only.
+        return "absence"
+    return "token-only"
 
 
 def classify_task(calls: list[str], suite: str, links=None, threat_model: str = "moderate",
                   committed: list[bool] | None = None,
                   step_effects: list | None = None,
                   step_binds: list | None = None,
-                  numeric_links=None) -> dict:
+                  numeric_links=None, absence_links=None) -> dict:
     """Label a single task as carrying a stale-dependency candidate or not.
 
     `links` are optional provenance edges from staledep.provenance.trace; without
@@ -202,13 +209,23 @@ def classify_task(calls: list[str], suite: str, links=None, threat_model: str = 
     all_links = list(links or [])
     if numeric_links:
         all_links = all_links + list(numeric_links)
+    # Negative evidence: a read that found NOTHING, followed by a state change.
+    # Both lineage signals follow a value, so both are blind to it by
+    # construction -- see staledep/absence.py.
+    absence = list(absence_links or [])
     links = all_links or None
+    seen = {(w.check_idx, w.use_idx, w.resource) for w in windows}
     if links:
-        seen = {(w.check_idx, w.use_idx, w.resource) for w in windows}
         for w in windows_from_provenance(calls, links, suite, step_effects):
             if (w.check_idx, w.use_idx, w.resource) not in seen:
                 windows.append(w)
                 seen.add((w.check_idx, w.use_idx, w.resource))
+    for w in windows_from_provenance(calls, absence, suite, step_effects):
+        w = replace(w, resource="absence:" + w.resource.split(":", 1)[-1])
+        if (w.check_idx, w.use_idx, w.resource) not in seen:
+            windows.append(w)
+            seen.add((w.check_idx, w.use_idx, w.resource))
+    all_links = all_links + absence
 
     # A sink that raised did not commit. An uncommitted action is not an
     # exploited use, so it is counted separately rather than silently included.

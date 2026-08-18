@@ -25,6 +25,7 @@ import glob
 import json
 import os
 
+from staledep.absence import trace_absence
 from staledep.binding import Bind, bind_of
 from staledep.provenance import trace_from_log
 from staledep.toctou import classify_task
@@ -58,7 +59,8 @@ def collect():
                     all_links[link.rule] += 1
 
                 r = classify_task(tool_names(steps), suite, links=lex,
-                                  committed=committed(steps))
+                                  committed=committed(steps),
+                                  absence_links=trace_absence(steps, errored))
                 for w in r["windows"]:
                     b = bind_of(suite, w.use_tool, w.resource)
                     # The rule of the FIRST link backing this window, which is

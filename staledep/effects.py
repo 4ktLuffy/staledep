@@ -116,7 +116,7 @@ def writer_of(suite: str, resource: str) -> Writer | None:
     table = RESOURCE_WRITERS.get(suite, {})
     if resource in table:
         return table[resource]
-    if resource.startswith("dataflow:"):
+    if resource.startswith(("dataflow:", "absence:")):
         tool = resource.split(":", 1)[1]
         eff = SUITES.get(suite, {}).get(tool)
         if eff is not None:

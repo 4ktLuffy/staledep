@@ -99,6 +99,44 @@ def numbers_in(text: str) -> list[float]:
     return out
 
 
+#: A product needs both factors to be large enough that their product is not a
+#: coincidence. 2 x 3 = 6 explains nothing; 12 x 45.50 = 546.0 is a line item.
+_MIN_FACTOR = 2.0
+#: Only ONE pair may explain the target. If several do, the relation is fitted.
+def _product(target: float, pool: list[float]) -> tuple[float, float] | None:
+    """target = a * b, with BOTH factors observed in earlier output.
+
+    This is the verifiable half of the derived-value gap. An unknown multiplier
+    (`100 EUR -> 6350 ETB` with the rate nowhere in the trajectory) stays
+    uncovered and stays declared as uncovered, because admitting unknown
+    multipliers matches any pair of numbers at all. But quantity x unit price is
+    the commonest derivation in invoice work and both factors are normally right
+    there in the source -- refusing that was throwing away a checkable relation
+    along with the uncheckable one.
+    """
+    hits = []
+    for i, a in enumerate(pool):
+        if abs(a) < _MIN_FACTOR:
+            continue
+        for b in pool[i + 1:]:
+            if abs(b) < _MIN_FACTOR:
+                continue
+            # At least one factor must have a fractional part. Two integers
+            # multiplying to the target is cheap -- any composite number factors
+            # several ways -- and measured on the corpus, an integer-only rule
+            # produced 9 links and every one was a coincidence:
+            # get_most_recent_transactions(n=100) "explained" as 2.0 x 50.0 from
+            # unrelated transaction amounts. A real price x quantity almost
+            # always carries a non-integer price.
+            if a.is_integer() and b.is_integer():
+                continue
+            if abs(a * b - target) <= _TOL:
+                hits.append((a, b))
+                if len(hits) > 1:
+                    return None          # fitted, not found
+    return hits[0] if hits else None
+
+
 def explain(target: float, pool: list[float]) -> tuple[str, tuple[float, ...]] | None:
     """How `target` could have been computed from `pool`, or None.
 
@@ -117,7 +155,18 @@ def explain(target: float, pool: list[float]) -> tuple[str, tuple[float, ...]] |
         name, term = rate_hits[0]
         return f"rate:{name}", (term,)
 
-    usable = pool[:_MAX_TERMS]
+    # A subset that CONTAINS the target is a literal copy wearing a sum's
+    # clothes, and lexical `direct` matching already owns copies. The last
+    # surviving numeric link on the corpus was exactly this:
+    # amount=200.0 "derived" from [-1.0, 1.0, 200.0], where the cancelling pair
+    # padded a copy up to the three-term minimum.
+    usable = [x for x in pool[:_MAX_TERMS] if abs(x - target) > _TOL]
+    # Tried before subset-sum: a product of two observed factors is a more
+    # specific explanation than some combination that happens to reach the total.
+    prod = _product(target, usable)
+    if prod is not None:
+        return "product", prod
+
     for size in range(_MIN_SUBSET, min(len(usable), _MAX_TERMS) + 1):
         for combo in itertools.combinations(usable, size):
             if abs(sum(combo) - target) <= _TOL:
@@ -125,21 +174,46 @@ def explain(target: float, pool: list[float]) -> tuple[str, tuple[float, ...]] |
     return None
 
 
-def trace_numeric(steps, errored: set[int] | None = None) -> list[NumericLink]:
+def trace_numeric(steps, errored: set[int] | None = None,
+                  suite: str | None = None) -> list[NumericLink]:
     """Find arguments computed from an earlier output.
 
     Same exclusions as lexical lineage: a call cannot consume output from its own
     turn, and a failed call's output is an error string rather than state.
+
+    THIRD EXCLUSION, when `suite` is given: a READ sink is skipped. It can never
+    form a window -- "a read acting on stale data changes nothing" is already the
+    rule in windows_from_provenance -- so a numeric link into one is pure noise
+    in a link-level audit. Measured, every numeric link on the corpus was one:
+    `get_most_recent_transactions(n=100)` explained as 2.0 x 50.0, or as a subset
+    sum, from unrelated transaction amounts. `n` is a pagination count. Nine
+    links, nine coincidences, zero windows.
     """
     errored = errored or set()
+    read_sinks: set[str] = set()
+    if suite is not None:
+        from .effects import Risk, effects_for
+        read_sinks = {t for t, e in effects_for(suite).items() if e.risk is Risk.READ}
     links: list[NumericLink] = []
     sources: list[tuple[int, str, list[float], int]] = []   # idx, tool, numbers, turn
 
-    for st in steps:
-        idx, turn = getattr(st, "idx", 0), getattr(st, "turn", -1)
-        tool, args, output = st.tool, st.args or {}, st.output
+    # Accept both Step objects and raw (tool, args, output) tuples, exactly as
+    # trace_from_log does. It did not, so every tuple caller -- including the
+    # seeded recall harness -- raised AttributeError and numeric lineage was
+    # never once exercised against the seeded cases it was written to cover.
+    # A second entry point that disagrees with the first is the same defect that
+    # made trace() and trace_from_log() diverge.
+    for pos, st in enumerate(steps):
+        if hasattr(st, "tool"):
+            idx, turn = st.idx, st.turn
+            tool, args, output = st.tool, st.args or {}, st.output
+        else:
+            idx, turn = pos, pos          # a sequential ground truth: one per turn
+            tool, args, output = st[0], st[1] or {}, st[2]
 
         for arg_name, arg_value in args.items():
+            if tool in read_sinks:
+                continue
             if not isinstance(arg_value, (int, float)) or isinstance(arg_value, bool):
                 continue
             target = float(arg_value)

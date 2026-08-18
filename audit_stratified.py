@@ -27,6 +27,7 @@ import json
 import os
 import random
 
+from staledep.absence import trace_absence
 from staledep.binding import bind_of
 from staledep.numeric import trace_numeric
 from staledep.provenance import trace_from_log
@@ -55,7 +56,7 @@ def collect():
                     continue
                 names = tool_names(steps)
                 lex = trace_from_log(steps, errored)
-                num = trace_numeric(steps, errored)
+                num = trace_numeric(steps, errored, suite)
 
                 state_w = {(w.check_idx, w.use_idx, w.resource)
                            for w in find_windows(names, suite)}
@@ -65,6 +66,7 @@ def collect():
                          for w in windows_from_provenance(names, num, suite)}
 
                 r = classify_task(names, suite, links=lex, committed=committed(steps),
+                                  absence_links=trace_absence(steps, errored),
                                   numeric_links=num)
                 for w in r["windows"]:
                     key = (w.check_idx, w.use_idx, w.resource)

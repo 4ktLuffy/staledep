@@ -211,6 +211,12 @@ def bind_of(suite: str, sink_tool: str, resource: str) -> Bind:
     table = EDGE_BINDING.get((suite, sink_tool))
     if table is None:
         return Bind.UNKNOWN
+    # An absence check copied no value into the action, so the only channel by
+    # which it could have influenced the action is control flow. Unlike the
+    # send_money balance gate this does not assume anything about the sink's
+    # implementation -- it is a deduction from an observed empty result.
+    if resource.startswith("absence:"):
+        return Bind.CONTROL
     # a dataflow pseudo-resource resolves through its source tool's reads
     if resource.startswith("dataflow:"):
         from .effects import effects_for
